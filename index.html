@@ -169,6 +169,7 @@ const DEF_SETTINGS = {
   // Danh sách đội thi công — đồng bộ với web thiết bị HH12 (phieu-hh12)
   doi:['An Bình (hoàn thiện)','An Phát','BCH','DPCONS','Đỗ Đình Tán','ĐTC Khoa','ĐTC Liên Copha','ĐTC Trường','ĐTC Xây Lắp Copha','Đức Hiểu','Gia Phạm','Hải Đăng','Hòa Thùy','Hoàng Văn Tiến','Lê Văn Thuật','Minh Sơn','Nguyễn Đức Kiên','Nhật Minh (hoàn thiện)','NTP Bảo Hưng','NTP Gia Phong','NTP Neo','NTP Quang Thái','NTP Trung Hải','Tổ Thép Lương','Tuấn Anh','UTCONTS'],
   donGia:400000,
+  photoKeep:1,
   photoRequired:true
 };
 
@@ -195,6 +196,8 @@ function caSum(day,k){
   let sl=0,gc=0; (day?.ca?.[k]?.rows||[]).forEach(r=>{const n=+r.sl||0; sl+=n; gc+=n*hrs(r.tu,r.den);});
   return {sl, gc:Math.round(gc*100)/100};
 }
+/* giờ của 1 dòng: ca Sáng/Chiều luôn theo giờ ca trong Cài đặt; tăng ca theo giờ nhập */
+const rowT = (r,c) => c.tc ? [r.tu||'',r.den||''] : (S.settings?.hours?.[c.k] || [r.tu,r.den]);
 /* công quy đổi của 1 dòng: ca chính 0,5 công/người; tăng ca = người×giờ/8 */
 const rowQD = (r,c) => c.tc ? (+r.sl||0)*hrs(r.tu,r.den)/8 : (+r.sl||0)/2;
 function daySum(day){
@@ -228,6 +231,7 @@ async function initStore(){
     saveDay: (date,o) => F.setDoc(d('cn_days',date),o,{merge:true}),
     async listDays(a,b){ const q=await F.getDocs(F.query(F.collection(fs,'cn_days'),F.where('date','>=',a),F.where('date','<=',b))); return q.docs.map(x=>x.data()); },
     async listPhotos(date){ const q=await F.getDocs(F.query(F.collection(fs,'cn_photos'),F.where('date','==',date))); return q.docs.map(x=>({id:x.id,...x.data()})).sort((a,b)=>a.at-b.at); },
+    async listPhotosBefore(d){ const q=await F.getDocs(F.query(F.collection(fs,'cn_photos'),F.where('date','<',d),F.limit(300))); return q.docs.map(x=>({id:x.id,date:x.data().date})); },
     async addPhoto(p){ const r=await F.addDoc(F.collection(fs,'cn_photos'),p); return r.id; },
     delPhoto: id => F.deleteDoc(d('cn_photos',id)),
   };
@@ -252,6 +256,7 @@ function demoApi(){
     saveDay: async (date,o) => { st.days[date]=deep(st.days[date]||{},clone(o)); save(); },
     listDays: async (a,b) => Object.values(st.days).filter(x=>x.date>=a&&x.date<=b).map(clone),
     listPhotos: async date => Object.entries(st.photos).filter(([,p])=>p.date===date).map(([id,p])=>({id,...p})).sort((a,b)=>a.at-b.at),
+    listPhotosBefore: async d => Object.entries(st.photos).filter(([,p])=>p.date<d).map(([id,p])=>({id,date:p.date})),
     addPhoto: async p => { const id='p'+Date.now()+Math.random().toString(36).slice(2,6); st.photos[id]=p; save(); return id; },
     delPhoto: async id => { delete st.photos[id]; save(); },
   };
@@ -286,11 +291,13 @@ function shell(inner){
 }
 function route(){
   if(!S.user) return;
+  if(S.loadedOn && S.loadedOn!==today() && !S.dirty){ S.loadedOn=today(); loadDay(today()).then(route); return; }
   let t=(location.hash.slice(2)||'').split('/')[0];
   const ok=TABS.find(x=>x[0]===t&&x[2]());
   if(!ok){ location.hash = can.write()?'#/khai-bao':'#/phan-cong'; return; }
   ({'khai-bao':viewKhaiBao,'phan-cong':viewPhanCong,'anh':viewAnh,'tong-hop':viewTongHop,'cai-dat':viewCaiDat})[t]();
 }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && S.user && S.loadedOn!==today()) route(); });
 window.addEventListener('hashchange',()=>{ if(S.dirty && !confirm('Có thay đổi chưa lưu. Rời trang?')){ return; } S.dirty=false; route(); });
 window.addEventListener('beforeunload',e=>{ if(S.dirty){ e.preventDefault(); e.returnValue=''; } });
 
@@ -387,6 +394,7 @@ function viewKhaiBao(){
     ${can.admin() ? dateBar(`<span style="padding-bottom:10px">${st}</span>`)
       : `<div class="row" style="margin-bottom:12px;align-items:center"><span class="today">Hôm nay · ${thu(S.date)} ${vn(S.date)} · ${nowHM()}</span>${st}</div>`}
     <div class="steps" id="steps">${stepsHtml()}</div>
+    ${d.locked?`<div class="err"><b>Ngày ${vn(S.date)} đã chốt nên không nhập được nữa.</b>${can.admin()?' Muốn sửa thì bấm "Mở chốt để sửa" ở dưới, hoặc bấm "Hôm nay" để sang ngày mới.':' Cần sửa thì báo quản trị mở chốt.'}</div>`:''}
     <div id="errs"></div>
     <div id="cawrap">${caCard(CAS[iSel],iSel)}</div>
     ${ro?'':`<div style="margin:-6px 0 12px"><button class="btn ghost sm" id="copy">Chép phân công ca này từ hôm trước</button></div>`}
@@ -445,7 +453,7 @@ function validate(){
       if(r.kt && !r.doi) errs.push(`${p} có tick khấu trừ nhưng chưa chọn đội.`);
       if(r.kt && r.doi==='BCH') errs.push(`${p} BCH không khấu trừ — bỏ tick hoặc chọn đúng đội.`);
     });
-    if(S.settings.photoRequired && sm.sl>0 && !S.photos.some(p=>p.ca===c.k)) errs.push(`${c.n}: có ${sm.sl} người nhưng chưa có ảnh công nhật.`);
+    if(S.settings.photoRequired && sm.sl>0 && !S.photos.some(p=>p.ca===c.k) && !(S.day.photos?.[c.k]>0)) errs.push(`${c.n}: có ${sm.sl} người nhưng chưa có ảnh công nhật.`);
   });
   const s=daySum(S.day);
   if(s.tcTruaSL>Math.max(s.sang,s.chieu)) errs.push(`TC trưa ${s.tcTruaSL} người, nhiều hơn số người đi ca chính — kiểm tra lại.`);
@@ -459,7 +467,7 @@ async function saveDay(lock){
     if(!confirm(`Chốt công nhật ngày ${vn(S.date)}? Sau khi chốt chỉ quản trị mới mở lại được.`)) return;
   }
   $('#errs').innerHTML='';
-  const ca={}; CAS.forEach(c=>{ ca[c.k]={ rows:S.day.ca[c.k].rows.map(r=>({gs:r.gs||'',viec:String(r.viec||'').trim(),vitri:String(r.vitri||'').trim(),doi:r.doi||'',kt:!!r.kt,sl:+r.sl||0,tu:r.tu||'',den:r.den||''})), note:S.day.ca[c.k].note||'' }; });
+  const ca={}; CAS.forEach(c=>{ ca[c.k]={ rows:S.day.ca[c.k].rows.map(r=>({gs:r.gs||'',viec:String(r.viec||'').trim(),vitri:String(r.vitri||'').trim(),doi:r.doi||'',kt:!!r.kt,sl:+r.sl||0,tu:rowT(r,c)[0],den:rowT(r,c)[1]})), note:S.day.ca[c.k].note||'' }; });
   const o={date:S.date, ca, note:S.day.note||'', updatedAt:Date.now(), updatedBy:S.user.name};
   if(lock) Object.assign(o,{locked:true,lockedBy:S.user.name,lockedAt:Date.now()});
   try{ await api.saveDay(S.date,o); Object.assign(S.day,o); S.dirty=false; if(lock) viewKhaiBao(); else toast('Đã lưu '+new Date().toLocaleTimeString('vi-VN'),'ok'); }
@@ -492,9 +500,12 @@ async function upload(input){
   if(!files.length) return;
   const have=S.photos.filter(p=>p.ca===k).length;
   if(have+files.length>8){ toast('Tối đa 8 ảnh mỗi ca.','warn'); return; }
-  toast(`Đang tải ${files.length} ảnh…`);
+  const old=files.filter(f=>ymd(new Date(f.lastModified||Date.now()))!==S.date);
+  if(old.length){ toast(`Có ${old.length} ảnh chụp từ ngày khác — không dùng ảnh cũ, chụp mới tại công trường.`,'bad'); if(old.length===files.length) return; }
+  const ok=files.filter(f=>!old.includes(f));
+  toast(`Đang tải ${ok.length} ảnh…`);
   try{
-    for(const f of files){
+    for(const f of ok){
       const t=new Date(f.lastModified||Date.now()), td=ymd(t);
       const label=`HH12 · Công nhật ${c.n} · ${pad(t.getDate())}/${pad(t.getMonth()+1)}/${t.getFullYear()} ${pad(t.getHours())}:${pad(t.getMinutes())} · ${S.user.name}`;
       const data=await compress(f,label);
@@ -503,6 +514,12 @@ async function upload(input){
     }
     await syncPhotoCount(k); rerenderCa(k); toast('Đã tải ảnh lên','ok');
   }catch(e){ toast('Lỗi tải ảnh: '+(e.message||e),'bad'); }
+}
+/* tự xoá ảnh của các ngày trước — giữ S.settings.photoKeep ngày (1 = chỉ giữ hôm nay) */
+async function cleanPhotos(){
+  if(!can.write()) return;
+  const keep=Math.max(1,+S.settings.photoKeep||1), cutoff=addDays(today(),-(keep-1));
+  try{ const old=await api.listPhotosBefore(cutoff); for(const p of old) await api.delPhoto(p.id); }catch(e){ console.warn('cleanPhotos',e); }
 }
 async function syncPhotoCount(k){ const n=S.photos.filter(p=>p.ca===k).length; S.day.photos={...S.day.photos,[k]:n}; await api.saveDay(S.date,{date:S.date,photos:{[k]:n}}); }
 function zoom(src){ const d=document.createElement('div'); d.className='lb'; d.innerHTML=`<img src="${src}" alt="Ảnh phóng to"><button class="btn">Đóng</button>`; d.onclick=()=>d.remove(); document.body.appendChild(d); }
@@ -516,7 +533,7 @@ function byGS(day){
 function zaloText(){
   const m=byGS(S.day); const s=daySum(S.day);
   let t=`PHÂN CÔNG CÔNG NHẬT HH12 – ${thu(S.date)} ${vn(S.date)}\nSáng ${s.sang} người · Chiều ${s.chieu} người · TC trưa ${s.tcTruaSL} · TC tối ${s.tcToiSL}\n`;
-  for(const [g,rows] of m){ t+=`\n▸ ${g}:\n`; rows.forEach(r=>{ t+=`  - ${r.ca.n} ${r.tu}–${r.den}: ${r.sl} người – ${r.viec}${r.vitri?' – '+r.vitri:''}${r.doi?' – đội '+r.doi:''}${r.kt?' (KHẤU TRỪ)':''}\n`; }); }
+  for(const [g,rows] of m){ t+=`\n▸ ${g}:\n`; rows.forEach(r=>{ t+=`  - ${r.ca.n} ${rowT(r,r.ca).join('–')}: ${r.sl} người – ${r.viec}${r.vitri?' – '+r.vitri:''}${r.doi?' – đội '+r.doi:''}${r.kt?' (KHẤU TRỪ)':''}\n`; }); }
   return t;
 }
 function viewPhanCong(){
@@ -526,7 +543,7 @@ function viewPhanCong(){
     const sl=rows.reduce((a,r)=>a+(+r.sl||0),0);
     const h=S.settings.hours[c.k];
     return `<tr class="grp"><td colspan="8">${c.n.toUpperCase()} &nbsp;${h[0]}–${h[1]} &nbsp;·&nbsp; ${sl} người</td></tr>`+
-      rows.map(r=>`<tr><td class="n">${++n}</td><td>${esc(r.gs)}</td><td>${esc(r.viec)}</td><td>${esc(r.vitri)}</td><td>${esc(r.doi||'')}</td><td class="n">${r.sl}</td><td>${esc(r.tu)}–${esc(r.den)}</td><td class="c">${r.kt?'Có':''}</td></tr>`).join('');
+      rows.map(r=>`<tr><td class="n">${++n}</td><td>${esc(r.gs)}</td><td>${esc(r.viec)}</td><td>${esc(r.vitri)}</td><td>${esc(r.doi||'')}</td><td class="n">${r.sl}</td><td>${esc(rowT(r,c).join('–'))}</td><td class="c">${r.kt?'Có':''}</td></tr>`).join('');
   }).join('');
   shell(`<div class="noprint">${dateBar(`<span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap"><button class="btn blue" id="png">Tải ảnh gửi Zalo</button><button class="btn" id="zalo">Copy chữ</button><button class="btn" id="prt">In</button></span>`)}</div>
     <div id="dash">
@@ -555,7 +572,7 @@ function viewPhanCong(){
 function viewAnh(){
   shell(`<div class="eyebrow">Công nhật · ${PROJECT}</div><h1>Ảnh công nhật</h1>${dateBar()}
     ${CAS.map(c=>{ const ps=S.photos.filter(p=>p.ca===c.k); return `<section class="card"><div class="cahd"><h2>${c.n}</h2><span class="badge ${ps.length?'ok':'warn'}">${ps.length} ảnh</span></div>
-      ${ps.length?`<div class="gal">${ps.map(p=>`<figure><img src="${p.data}" data-zoom alt="Ảnh ${c.n}"><figcaption>${esc(p.by)} · ${new Date(p.takenAt||p.at).toLocaleString('vi-VN')}${p.takenDate&&p.takenDate!==S.date?' · <b style="color:var(--warn)">ảnh khác ngày</b>':''}</figcaption></figure>`).join('')}</div>`:'<div class="muted">Chưa có ảnh.</div>'}</section>`; }).join('')}`);
+      ${ps.length?`<div class="gal">${ps.map(p=>`<figure><img src="${p.data}" data-zoom alt="Ảnh ${c.n}"><figcaption>${esc(p.by)} · ${new Date(p.takenAt||p.at).toLocaleString('vi-VN')}${p.takenDate&&p.takenDate!==S.date?' · <b style="color:var(--warn)">ảnh khác ngày</b>':''}</figcaption></figure>`).join('')}</div>`:(S.day.photos?.[c.k]>0?`<div class="muted">Đã có ${S.day.photos[c.k]} ảnh — ảnh ngày cũ đã tự xoá theo cài đặt.</div>`:'<div class="muted">Chưa có ảnh.</div>')}</section>`; }).join('')}`);
   bindDateBar(viewAnh);
   $('main').onclick=e=>{ if(e.target.hasAttribute('data-zoom')) zoom(e.target.src); };
 }
@@ -648,7 +665,7 @@ async function exportXlsx(){
   head(w2,'CHI TIẾT PHÂN CÔNG CÔNG NHẬT',sub,c2);
   let r2=5,n=0;
   days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ n++;
-    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?'Có':'',+x.sl||0,x.tu,x.den,hrs(x.tu,x.den),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8`}:{formula:`N${r2}`},d.ca[c.k].note||''];
+    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?'Có':'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8`}:{formula:`N${r2}`},d.ca[c.k].note||''];
     if(c.tc) for(let k=1;k<=16;k++) w2.getCell(r2,k).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDF3E1'}};
     if(x.kt) w2.getCell(r2,8).font={bold:true,color:{argb:'FFB3261E'}};
     r2++; })));
@@ -680,7 +697,7 @@ async function exportXlsx(){
   ['STT','Đội thi công','Ngày','Ca','Công việc – vị trí','SL','Giờ','Công quy đổi'].forEach((h,i)=>{ const x=w4.getCell(r4,i+1); x.value=h; x.font={bold:true,color:{argb:'FFFFFFFF'}}; x.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; x.border=B; });
   const det=[]; days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ if(x.kt) det.push({d,c,x}); })));
   det.sort((a,b)=>(a.x.doi||'').localeCompare(b.x.doi||'','vi')||(a.d.date<b.d.date?-1:a.d.date>b.d.date?1:0));
-  const r4s=r4+1; det.forEach((o,i)=>{ r4++; w4.getRow(r4).values=[i+1,o.x.doi,vn(o.d.date),o.c.n,`${o.x.viec}${o.x.vitri?' – '+o.x.vitri:''} (GS ${o.x.gs})`,+o.x.sl||0,`${o.x.tu}–${o.x.den}`,Math.round(rowQD(o.x,o.c)*1000)/1000]; });
+  const r4s=r4+1; det.forEach((o,i)=>{ r4++; w4.getRow(r4).values=[i+1,o.x.doi,vn(o.d.date),o.c.n,`${o.x.viec}${o.x.vitri?' – '+o.x.vitri:''} (GS ${o.x.gs})`,+o.x.sl||0,rowT(o.x,o.c).join('–'),Math.round(rowQD(o.x,o.c)*1000)/1000]; });
   if(det.length) box(w4,r4s,r4,8);
 
   const buf=await wb.xlsx.writeBuffer();
@@ -706,6 +723,7 @@ async function viewCaiDat(){
   <section class="card"><h2>Giờ mặc định từng ca</h2><p class="muted">Tự điền khi thêm dòng, sửa được ở từng dòng.</p>
     ${CAS.map(c=>`<div class="row" style="margin-bottom:8px"><span style="width:80px;padding-bottom:10px;font-weight:600">${c.n}</span><label class="f" style="width:120px">Từ<input type="time" id="h1-${c.k}" value="${s.hours[c.k][0]}"></label><label class="f" style="width:120px">Đến<input type="time" id="h2-${c.k}" value="${s.hours[c.k][1]}"></label></div>`).join('')}
     <label class="f" style="margin-top:10px;max-width:260px">Đơn giá công nhật để tính khấu trừ (đ/công)<input type="number" id="dg" min="0" step="1000" value="${+s.donGia||0}"></label>
+    <label class="f" style="margin-top:10px;max-width:260px">Giữ ảnh trong (ngày) — 1 = sang ngày mới tự xoá ảnh hôm trước<input type="number" id="pkeep" min="1" value="${+s.photoKeep||1}"></label>
     <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="preq" style="width:20px;min-height:20px" ${s.photoRequired?'checked':''}> Bắt buộc có ảnh mỗi ca có người mới được chốt ngày</label>
     <div class="row" style="margin-top:14px"><button class="btn pri" id="saveS">Lưu cài đặt</button><span id="msg"></span></div></section>
   </div>
@@ -722,7 +740,7 @@ async function viewCaiDat(){
   $('#saveS').onclick=async()=>{
     const gs=$('#gs').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{ const [n,...r]=l.split('|'); return {name:n.trim(),note:r.join('|').trim()}; });
     const hours={}; CAS.forEach(c=>hours[c.k]=[$('#h1-'+c.k).value,$('#h2-'+c.k).value]);
-    S.settings={gs,hours,viec:$('#viec').value.split('\n').map(x=>x.trim()).filter(Boolean),doi:$('#doi').value.split('\n').map(x=>x.trim()).filter(Boolean),donGia:Math.max(0,+$('#dg').value||0),photoRequired:$('#preq').checked};
+    S.settings={gs,hours,viec:$('#viec').value.split('\n').map(x=>x.trim()).filter(Boolean),doi:$('#doi').value.split('\n').map(x=>x.trim()).filter(Boolean),donGia:Math.max(0,+$('#dg').value||0),photoKeep:Math.max(1,+$('#pkeep').value||1),photoRequired:$('#preq').checked};
     await api.saveSettings(S.settings); toast('Đã lưu cài đặt','ok');
   };
   $('#uadd').onclick=async()=>{ const e=$('#ue').value.trim().toLowerCase(); if(!/^\S+@\S+\.\S+$/.test(e)){ toast('Email không hợp lệ','bad'); return; }
@@ -750,7 +768,7 @@ async function boot(){
       if(!role){ loginView(`Tài khoản <b>${esc(u.email)}</b> chưa được cấp quyền. Báo quản trị (anh Hiếu) thêm email này vào mục Cài đặt.<br><br><button class="btn sm" id="lo2">Đăng xuất</button>`); $('#lo2').onclick=()=>api.logout(); return; }
       S.user={email:u.email,name}; S.role=role;
       const st=await api.getSettings(); S.settings=Object.assign({},DEF_SETTINGS,st||{}); S.settings.hours=Object.assign({},DEF_SETTINGS.hours,st?.hours||{});
-      await loadDay(today()); route();
+      S.loadedOn=today(); await cleanPhotos(); await loadDay(today()); route();
     }catch(e){ loginView('Lỗi tải dữ liệu: '+esc(e.message||e)); }
   });
 }
