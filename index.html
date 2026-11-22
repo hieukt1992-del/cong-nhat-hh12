@@ -120,9 +120,21 @@ tr.tot td{font-weight:700;background:var(--blue2)}
 .pt{border-collapse:collapse;width:100%;min-width:720px;font-size:14px;color:var(--ink)}
 .pt th,.pt td{border:1px solid #9aa9c0;padding:7px 9px;text-align:left;vertical-align:middle}
 .pt thead th{background:var(--navy);color:#fff;font-weight:600;font-size:13px}
-.pt .n{text-align:right;width:46px}
+.pt .n{text-align:right;width:46px;white-space:nowrap}
 .pt .c{text-align:center;width:80px}
 .pt tr.grp td{background:#e8f0fb;font-weight:700;color:var(--navy)}
+.pad{width:100%;height:180px;border:1.5px dashed var(--blue);border-radius:10px;background:#fff;touch-action:none;display:block}
+.modal{position:fixed;inset:0;background:rgba(5,15,30,.6);z-index:60;display:grid;place-items:center;padding:16px}
+.modal>div{background:#fff;border-radius:14px;padding:18px;max-width:560px;width:100%;max-height:92vh;overflow:auto}
+.modal h3{margin:0 0 8px;color:var(--navy)}
+.sigs{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #9aa9c0;margin-top:14px}
+.sigs>div{padding:8px;text-align:center;min-height:150px;display:flex;flex-direction:column;justify-content:space-between;align-items:center}
+.sigs>div+div{border-left:1px solid #9aa9c0}
+.sigs .t{font-weight:700;font-size:13px;color:var(--navy)}
+.sigs img{max-height:80px;max-width:100%;object-fit:contain}
+.sigs .nm{font-weight:700;font-size:13px}.sigs .tm{font-size:11px;color:var(--muted)}
+nav a .cnt{background:var(--red);color:#fff;border-radius:99px;padding:0 6px;font-size:11px;margin-left:4px}
+.kcard{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
 @media print{header,.noprint,.bar,.demo{display:none!important}main{padding:0;max-width:none}#dash{border:0;padding:0}.tw{overflow:visible}.board{min-width:0}}
 @media (max-width:820px){
  .r,.r:not(.tc){grid-template-columns:1fr 1fr 84px 42px;grid-template-areas:"gs gs sl x" "viec viec viec viec" "vt vt vt vt" "doi doi doi doi" "kt kt kt kt"}
@@ -161,7 +173,23 @@ const CAS = [
   {k:'chieu',  n:'Chiều',   tc:false},
   {k:'tc_toi', n:'TC tối',  tc:true},
 ];
-const ROLES = {admin:'Quản trị', khaibao:'Khai báo công nhật', xem:'Chỉ xem (giám sát)'};
+const ROLES = {admin:'Quản trị', khaibao:'Khai báo công nhật', xem:'Chỉ xem (giám sát)', chan:'Chặn (không cho vào)'};
+const AUTO_ROLE = 'khaibao';   // ai đăng nhập Google lần đầu được tự cấp quyền này (giống web thiết bị)
+/* trạng thái khấu trừ của 1 ngày */
+const KT_ST = {cho_duyet:'Chờ duyệt khấu trừ', da_duyet:'Đã duyệt khấu trừ', tra_lai:'Bị trả lại', cu:'Đã chốt (quy trình cũ)'};
+const ktState = d => d?.ktSt || (d?.locked && !d?.sign ? 'cu' : '');
+const ktOK = d => ['da_duyet','cu'].includes(ktState(d));   // chỉ ngày đã duyệt mới tính tiền khấu trừ
+function stBadge(d){
+  const k=ktState(d);
+  if(k==='cho_duyet') return '<span class="badge warn">Đã ký · chờ duyệt KT</span>';
+  if(k==='da_duyet') return '<span class="badge ok">Đã duyệt KT</span>';
+  if(k==='tra_lai') return '<span class="badge bad">Bị trả lại</span>';
+  if(d?.locked) return '<span class="badge ok">Đã ký chốt</span>';
+  return d?.updatedAt ? '<span class="badge warn">Nháp</span>' : '<span class="badge">Chưa khai báo</span>';
+}
+const stText = d => { const k=ktState(d); return k==='cho_duyet'?'Chờ duyệt KT':k==='da_duyet'?'Đã duyệt KT':k==='tra_lai'?'Bị trả lại':d?.locked?'Đã chốt':'Nháp'; };
+const fdt = t => t ? new Date(t).toLocaleString('vi-VN',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit',year:'numeric'}) : '';
+const duyetLink = date => location.origin+location.pathname+'#/duyet/'+date;
 const DEF_SETTINGS = {
   gs:[{name:'Nguyễn Văn Lập',note:'GS Hoàn thiện'},{name:'Vũ Đức Trung',note:'Kết cấu VP T7–mái'},{name:'Lê Quang Hiếu',note:'CHP NTC'}],
   hours:{sang:['07:00','11:00'],tc_trua:['11:00','13:00'],chieu:['13:00','17:00'],tc_toi:['17:00','21:00']},
@@ -230,6 +258,9 @@ async function initStore(){
     async getDay(date){ const s=await F.getDoc(d('cn_days',date)); return s.exists()?s.data():null; },
     saveDay: (date,o) => F.setDoc(d('cn_days',date),o,{merge:true}),
     async listDays(a,b){ const q=await F.getDocs(F.query(F.collection(fs,'cn_days'),F.where('date','>=',a),F.where('date','<=',b))); return q.docs.map(x=>x.data()); },
+    async listDaysBySt(st){ const q=await F.getDocs(F.query(F.collection(fs,'cn_days'),F.where('ktSt','==',st))); return q.docs.map(x=>x.data()); },
+    async getSig(email){ const s=await F.getDoc(d('cn_sigs',email)); return s.exists()?s.data().sig:''; },
+    saveSig: (email,sig) => F.setDoc(d('cn_sigs',email),{sig,at:Date.now()}),
     async listPhotos(date){ const q=await F.getDocs(F.query(F.collection(fs,'cn_photos'),F.where('date','==',date))); return q.docs.map(x=>({id:x.id,...x.data()})).sort((a,b)=>a.at-b.at); },
     async listPhotosBefore(d){ const q=await F.getDocs(F.query(F.collection(fs,'cn_photos'),F.where('date','<',d),F.limit(300))); return q.docs.map(x=>({id:x.id,date:x.data().date})); },
     async addPhoto(p){ const r=await F.addDoc(F.collection(fs,'cn_photos'),p); return r.id; },
@@ -255,6 +286,9 @@ function demoApi(){
     getDay: async date => clone(st.days[date])||null,
     saveDay: async (date,o) => { st.days[date]=deep(st.days[date]||{},clone(o)); save(); },
     listDays: async (a,b) => Object.values(st.days).filter(x=>x.date>=a&&x.date<=b).map(clone),
+    listDaysBySt: async k => Object.values(st.days).filter(x=>x.ktSt===k).map(clone),
+    getSig: async e => (st.sigs||{})[e]||'',
+    saveSig: async (e,sig) => { st.sigs=st.sigs||{}; st.sigs[e]=sig; save(); },
     listPhotos: async date => Object.entries(st.photos).filter(([,p])=>p.date===date).map(([id,p])=>({id,...p})).sort((a,b)=>a.at-b.at),
     listPhotosBefore: async d => Object.entries(st.photos).filter(([,p])=>p.date<d).map(([id,p])=>({id,date:p.date})),
     addPhoto: async p => { const id='p'+Date.now()+Math.random().toString(36).slice(2,6); st.photos[id]=p; save(); return id; },
@@ -274,6 +308,7 @@ const TABS = [
   ['khai-bao','Khai báo', ()=>can.write()],
   ['phan-cong','Phân công', ()=>true],
   ['anh','Ảnh', ()=>true],
+  ['duyet','Duyệt KT', ()=>can.admin()],
   ['tong-hop','Tổng hợp', ()=>true],
   ['cai-dat','Cài đặt', ()=>can.admin()],
 ];
@@ -283,7 +318,7 @@ function shell(inner){
   ${DEMO?'<div class="demo">CHẾ ĐỘ DEMO — dữ liệu chỉ lưu trên trình duyệt này. Dán cấu hình Firebase vào file để dùng thật.</div>':''}
   <header><div class="hd">
     <div class="logo"><b>N</b>NEWTECONS · HH12</div>
-    <nav>${TABS.filter(t=>t[2]()).map(t=>`<a href="#/${t[0]}" class="${cur===t[0]?'on':''}">${t[1]}</a>`).join('')}</nav>
+    <nav>${TABS.filter(t=>t[2]()).map(t=>`<a href="#/${t[0]}" class="${cur===t[0]?'on':''}">${t[1]}${t[0]==='duyet'&&S.pendN?`<span class="cnt">${S.pendN}</span>`:''}</a>`).join('')}</nav>
     <div class="who">${esc(S.user.name)} · ${esc(ROLES[S.role]||'')}<button id="out">Thoát</button></div>
   </div></header>
   <main>${inner}</main>`;
@@ -295,7 +330,8 @@ function route(){
   let t=(location.hash.slice(2)||'').split('/')[0];
   const ok=TABS.find(x=>x[0]===t&&x[2]());
   if(!ok){ location.hash = can.write()?'#/khai-bao':'#/phan-cong'; return; }
-  ({'khai-bao':viewKhaiBao,'phan-cong':viewPhanCong,'anh':viewAnh,'tong-hop':viewTongHop,'cai-dat':viewCaiDat})[t]();
+  const arg=(location.hash.slice(2)||'').split('/')[1]||'';
+  ({'khai-bao':viewKhaiBao,'phan-cong':viewPhanCong,'anh':viewAnh,'duyet':viewDuyet,'tong-hop':viewTongHop,'cai-dat':viewCaiDat})[t](arg);
 }
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && S.user && S.loadedOn!==today()) route(); });
 window.addEventListener('hashchange',()=>{ if(S.dirty && !confirm('Có thay đổi chưa lưu. Rời trang?')){ return; } S.dirty=false; route(); });
@@ -384,17 +420,22 @@ function stepsHtml(){
   }).join('');
 }
 function viewKhaiBao(){
-  if(!can.admin() && S.date!==today()){ loadDay(today()).then(viewKhaiBao); return; }
+  if(!can.admin() && S.date!==today() && ktState(S.day)!=='tra_lai'){ loadDay(today()).then(viewKhaiBao); return; }
   if(S.caSelDate!==S.date || !S.caSel || !caOpen(S.caSel)){ S.caSel = S.date===today() ? currentCa() : 'sang'; S.caSelDate=S.date; }
   const d=S.day, ro=!editable(), iSel=CAS.findIndex(c=>c.k===S.caSel);
-  const st=d.locked?`<span class="badge ok">Đã chốt${d.lockedBy?' · '+esc(d.lockedBy):''}</span>`:(d.updatedAt?'<span class="badge warn">Nháp</span>':'<span class="badge">Chưa khai báo</span>');
+  const st=stBadge(d), ks=ktState(d);
   shell(`
     <div class="eyebrow">Công nhật · ${PROJECT}</div>
     <h1>Khai báo công nhật</h1>
     ${can.admin() ? dateBar(`<span style="padding-bottom:10px">${st}</span>`)
+      : S.date!==today() ? `<div class="row" style="margin-bottom:12px;align-items:center"><span class="today" style="background:var(--bad)">Sửa ngày bị trả lại · ${thu(S.date)} ${vn(S.date)}</span>${st}<button class="btn sm" id="backToday">Về hôm nay</button></div>`
       : `<div class="row" style="margin-bottom:12px;align-items:center"><span class="today">Hôm nay · ${thu(S.date)} ${vn(S.date)} · ${nowHM()}</span>${st}</div>`}
+    <div id="tralai"></div>
+    ${ks==='tra_lai'&&d.traLai?`<div class="err"><b>Anh ${esc(d.traLai.by)} trả lại ngày ${vn(S.date)} lúc ${fdt(d.traLai.at)}:</b> ${esc(d.traLai.lyDo)}<br>Sửa lại theo ý kiến trên rồi bấm <b>Ký &amp; chốt ngày</b> để gửi duyệt lại.</div>`:''}
+    ${ks==='cho_duyet'?`<div class="card" style="border-color:#e9c98f;background:var(--warn2)"><b>Đã ký chốt, đang chờ duyệt khấu trừ.</b> ${fmt(daySum(d).ktQD)} công trừ đội · người ký: ${esc(d.sign?.kb?.name||'')} lúc ${fdt(d.sign?.kb?.at)}. <button class="btn sm" id="zaloDuyet" style="margin-left:6px">Nhắn Zalo nhắc duyệt</button></div>`:''}
+    ${ks==='da_duyet'?`<div class="card" style="border-color:#bfe0cc;background:var(--ok2)"><b>Đã duyệt khấu trừ</b> · ${esc(d.sign?.duyet?.name||'')} lúc ${fdt(d.sign?.duyet?.at)}.</div>`:''}
     <div class="steps" id="steps">${stepsHtml()}</div>
-    ${d.locked?`<div class="err"><b>Ngày ${vn(S.date)} đã chốt nên không nhập được nữa.</b>${can.admin()?' Muốn sửa thì bấm "Mở chốt để sửa" ở dưới, hoặc bấm "Hôm nay" để sang ngày mới.':' Cần sửa thì báo quản trị mở chốt.'}</div>`:''}
+    ${d.locked&&ks!=='cho_duyet'&&ks!=='da_duyet'?`<div class="err"><b>Ngày ${vn(S.date)} đã chốt nên không nhập được nữa.</b>${can.admin()?' Muốn sửa thì bấm "Mở chốt để sửa" ở dưới, hoặc bấm "Hôm nay" để sang ngày mới.':' Cần sửa thì báo quản trị mở chốt.'}</div>`:''}
     <div id="errs"></div>
     <div id="cawrap">${caCard(CAS[iSel],iSel)}</div>
     ${ro?'':`<div style="margin:-6px 0 12px"><button class="btn ghost sm" id="copy">Chép phân công ca này từ hôm trước</button></div>`}
@@ -404,7 +445,7 @@ function viewKhaiBao(){
     <div class="bar"><div class="in">
       <div class="msg" id="msg">${d.updatedAt?'Lưu lần cuối: '+new Date(d.updatedAt).toLocaleString('vi-VN')+(d.updatedBy?' · '+esc(d.updatedBy):''):''}</div>
       ${d.locked ? (can.admin()?'<button class="btn" id="unlock">Mở chốt để sửa</button>':'')
-        : `<button class="btn pri" id="save">Lưu</button><button class="btn ok" id="lock">Chốt ngày</button>`}
+        : `<button class="btn pri" id="save">Lưu</button><button class="btn ok" id="lock">Ký &amp; chốt ngày</button>`}
     </div></div>`);
   if(can.admin()) bindDateBar(viewKhaiBao);
   const main=$('main');
@@ -434,7 +475,11 @@ function viewKhaiBao(){
   });
   $('#save')&&($('#save').onclick=()=>saveDay(false));
   $('#lock')&&($('#lock').onclick=()=>saveDay(true));
-  $('#unlock')&&($('#unlock').onclick=async()=>{ if(!confirm('Mở chốt ngày '+vn(S.date)+' để sửa?')) return; await api.saveDay(S.date,{locked:false,lockedBy:'',lockedAt:0}); S.day.locked=false; viewKhaiBao(); });
+  $('#unlock')&&($('#unlock').onclick=async()=>{ if(!confirm('Mở chốt ngày '+vn(S.date)+' để sửa?'+(ktState(S.day)==='da_duyet'?' Phần duyệt khấu trừ sẽ bị huỷ, người khai báo phải ký lại.':''))) return;
+    const o={locked:false,lockedBy:'',lockedAt:0,ktSt:'',sign:{kb:null,duyet:null}}; await api.saveDay(S.date,o); Object.assign(S.day,o); refreshPend(); viewKhaiBao(); });
+  $('#backToday')&&($('#backToday').onclick=async()=>{ await loadDay(today()); viewKhaiBao(); });
+  $('#zaloDuyet')&&($('#zaloDuyet').onclick=()=>shareText(zaloDuyetMsg(S.day)));
+  traLaiList();
   $('#copy')&&($('#copy').onclick=copyPrev);
 }
 function dirty(){ S.dirty=true; toast('Có thay đổi chưa lưu','warn'); }
@@ -464,15 +509,165 @@ async function saveDay(lock){
   if(lock){
     const errs=validate();
     if(errs.length){ $('#errs').innerHTML=`<div class="err"><b>Chưa chốt được, cần bổ sung:</b><ul>${errs.map(e=>`<li>${esc(e)}</li>`).join('')}</ul></div>`; $('#errs').scrollIntoView({behavior:'smooth'}); return; }
-    if(!confirm(`Chốt công nhật ngày ${vn(S.date)}? Sau khi chốt chỉ quản trị mới mở lại được.`)) return;
   }
+  let sign=null;
+  if(lock){ sign=await askSign(signSummary()); if(!sign) return; }
   $('#errs').innerHTML='';
   const ca={}; CAS.forEach(c=>{ ca[c.k]={ rows:S.day.ca[c.k].rows.map(r=>({gs:r.gs||'',viec:String(r.viec||'').trim(),vitri:String(r.vitri||'').trim(),doi:r.doi||'',kt:!!r.kt,sl:+r.sl||0,tu:rowT(r,c)[0],den:rowT(r,c)[1]})), note:S.day.ca[c.k].note||'' }; });
   const o={date:S.date, ca, note:S.day.note||'', updatedAt:Date.now(), updatedBy:S.user.name};
-  if(lock) Object.assign(o,{locked:true,lockedBy:S.user.name,lockedAt:Date.now()});
-  try{ await api.saveDay(S.date,o); Object.assign(S.day,o); S.dirty=false; if(lock) viewKhaiBao(); else toast('Đã lưu '+new Date().toLocaleTimeString('vi-VN'),'ok'); }
+  let kt=0;
+  if(lock){ kt=daySum({ca}).ktQD;
+    Object.assign(o,{locked:true,lockedBy:S.user.name,lockedAt:Date.now(),ktSt:kt>0?'cho_duyet':'',traLai:null,sign:{kb:{name:S.user.name,email:S.user.email,sig:sign,at:Date.now()},duyet:null}}); }
+  try{ await api.saveDay(S.date,o); Object.assign(S.day,o); S.dirty=false;
+    if(lock){ viewKhaiBao(); refreshPend(); afterSign(kt); } else toast('Đã lưu '+new Date().toLocaleTimeString('vi-VN'),'ok'); }
   catch(e){ toast('Lỗi lưu: '+(e.message||e),'bad'); }
 }
+/* ============ CHỮ KÝ & GỬI DUYỆT ============ */
+function sigPad(host){
+  host.innerHTML='<canvas class="pad" aria-label="Khung ký tên"></canvas><div class="row" style="margin-top:8px;align-items:center"><button type="button" class="btn sm" data-clear>Xoá, ký lại</button><span class="muted">Dùng ngón tay hoặc chuột ký trong khung.</span></div>';
+  const cv=host.querySelector('canvas'),ctx=cv.getContext('2d');
+  let drawing=false,dirty=false,last=null,bb=null;
+  const fit=()=>{const r=cv.getBoundingClientRect(),k=window.devicePixelRatio||1;cv.width=Math.max(1,Math.round(r.width*k));cv.height=Math.max(1,Math.round(r.height*k));ctx.setTransform(k,0,0,k,0,0);ctx.lineWidth=2.6;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#0b1f5c';};
+  requestAnimationFrame(fit);
+  const pt=e=>{const r=cv.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top];};
+  const grow=p=>{bb=bb?[Math.min(bb[0],p[0]),Math.min(bb[1],p[1]),Math.max(bb[2],p[0]),Math.max(bb[3],p[1])]:[p[0],p[1],p[0],p[1]];};
+  cv.addEventListener('pointerdown',e=>{e.preventDefault();if(cv.width<=1)fit();cv.setPointerCapture(e.pointerId);drawing=true;last=pt(e);grow(last);ctx.beginPath();ctx.arc(last[0],last[1],1.2,0,7);ctx.fillStyle='#0b1f5c';ctx.fill();dirty=true;});
+  cv.addEventListener('pointermove',e=>{if(!drawing)return;e.preventDefault();const p=pt(e);ctx.beginPath();ctx.moveTo(last[0],last[1]);ctx.lineTo(p[0],p[1]);ctx.stroke();grow(p);last=p;});
+  const up=()=>{drawing=false;};cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+  host.querySelector('[data-clear]').onclick=()=>{ctx.clearRect(0,0,cv.width,cv.height);dirty=false;bb=null;};
+  return {empty:()=>!dirty||!bb||(bb[2]-bb[0]<12&&bb[3]-bb[1]<12),data:()=>{
+    const k=window.devicePixelRatio||1,pd=6;
+    const x=Math.max(0,(bb[0]-pd)*k),y=Math.max(0,(bb[1]-pd)*k),w=Math.min(cv.width-x,(bb[2]-bb[0]+2*pd)*k),h=Math.min(cv.height-y,(bb[3]-bb[1]+2*pd)*k);
+    const s=Math.min(1,380/w),o=document.createElement('canvas');o.width=Math.max(1,Math.round(w*s));o.height=Math.max(1,Math.round(h*s));
+    o.getContext('2d').drawImage(cv,x,y,w,h,0,0,o.width,o.height);return o.toDataURL('image/png');}};
+}
+function modal(html){
+  const m=document.createElement('div'); m.className='modal'; m.innerHTML=`<div role="dialog" aria-modal="true">${html}</div>`; document.body.appendChild(m); return m;
+}
+/* mở khung ký; trả về ảnh chữ ký (dataURL) hoặc null nếu huỷ */
+async function askSign(intro,title='Ký xác nhận'){
+  let saved=''; try{ saved=await api.getSig(S.user.email); }catch(e){}
+  return new Promise(res=>{
+    const m=modal(`<h3>${title}</h3>${intro}
+      ${saved?`<label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="radio" name="sm" value="saved" checked style="width:20px;min-height:20px"> Dùng chữ ký đã lưu</label><div id="svd" style="text-align:center"><img src="${saved}" alt="Chữ ký đã lưu" style="max-height:80px"></div>
+        <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="radio" name="sm" value="new" style="width:20px;min-height:20px"> Ký mới</label>`:''}
+      <div id="padw" ${saved?'hidden':''}><div id="pad"></div>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px"><input type="checkbox" id="keep" checked style="width:20px;min-height:20px"> Lưu chữ ký này để lần sau ký nhanh</label></div>
+      <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn" data-x>Huỷ</button><button class="btn ok" data-ok>Ký &amp; gửi</button></div>`);
+    let pad=null; const showPad=()=>{ m.querySelector('#padw').hidden=false; if(!pad) pad=sigPad(m.querySelector('#pad')); };
+    if(!saved) showPad();
+    m.querySelectorAll('[name=sm]').forEach(r=>r.onchange=()=>{ if(r.value==='new'&&r.checked) showPad(); else m.querySelector('#padw').hidden=true; });
+    const done=v=>{ m.remove(); res(v); };
+    m.querySelector('[data-x]').onclick=()=>done(null);
+    m.querySelector('[data-ok]').onclick=async()=>{
+      const useSaved=saved && m.querySelector('[name=sm]:checked')?.value==='saved';
+      if(useSaved) return done(saved);
+      if(!pad||pad.empty()){ alert('Chưa ký vào khung.'); return; }
+      const sig=pad.data(); if(m.querySelector('#keep').checked){ try{ await api.saveSig(S.user.email,sig); }catch(e){} }
+      done(sig);
+    };
+  });
+}
+function ktRows(day){ const out=[]; CAS.forEach(c=>(day?.ca?.[c.k]?.rows||[]).forEach(r=>{ if(r.kt) out.push({...r,c,qd:rowQD(r,c)}); })); return out; }
+function signSummary(){
+  const s=daySum(S.day), dg=+S.settings.donGia||0, kt=ktRows(S.day), by=new Map();
+  kt.forEach(r=>by.set(r.doi,(by.get(r.doi)||0)+r.qd));
+  return `<p class="muted" style="margin:0 0 8px">Ngày ${thu(S.date)} ${vn(S.date)} · Sáng ${s.sang} · Chiều ${s.chieu} · TC ${fmt(s.gioTC)} giờ · Quy đổi <b>${fmt(s.congQD)}</b> công</p>
+    ${kt.length?`<div class="tw"><table><tr><th>Đội bị khấu trừ</th><th class="n">Công QĐ</th><th class="n">Thành tiền</th></tr>${[...by].map(([k,v])=>`<tr><td>${esc(k)}</td><td class="n">${fmt(v)}</td><td class="n">${money(v*dg)}</td></tr>`).join('')}</table></div>
+      <p style="font-size:13px;margin:8px 0 0">Sau khi ký, phần khấu trừ sẽ <b>chuyển cho quản trị ký duyệt</b>. Ngày sẽ bị khoá, cần sửa thì chờ quản trị trả lại.</p>`
+      :`<p style="font-size:13px;margin:0">Ngày này không có khấu trừ đội. Ký xong là chốt ngày, không cần duyệt.</p>`}`;
+}
+const zaloDuyetMsg = d => { const s=daySum(d); return `Công nhật HH12 ngày ${vn(d.date)} đã ký chốt (${d.sign?.kb?.name||S.user.name}).\nCó ${fmt(s.ktQD)} công khấu trừ đội, đề nghị anh duyệt.\nMở link để ký duyệt: ${duyetLink(d.date)}`; };
+async function shareText(msg){
+  if(navigator.share){ try{ await navigator.share({text:msg}); return; }catch(e){ if(e&&e.name==='AbortError') return; } }
+  let ok=false; try{ await navigator.clipboard.writeText(msg); ok=true; }catch(e){}
+  toast(ok?'Đã sao chép tin nhắn, dán vào Zalo để gửi.':'Gửi nội dung này qua Zalo: '+msg, ok?'ok':'warn');
+  window.open('https://chat.zalo.me/','_blank');
+}
+function afterSign(kt){
+  if(!(kt>0)){ toast('Đã ký chốt ngày '+vn(S.date),'ok'); return; }
+  const m=modal(`<h3>Đã ký, chuyển duyệt khấu trừ</h3><p style="font-size:14px">${fmt(kt)} công khấu trừ đội ngày ${vn(S.date)} đang chờ quản trị ký duyệt.</p>
+    <div class="row" style="justify-content:flex-end">${can.admin()?'<button class="btn ok" data-go>Duyệt luôn</button>':'<button class="btn blue" data-z>Nhắn Zalo báo duyệt</button>'}<button class="btn" data-x>Đóng</button></div>`);
+  m.querySelector('[data-x]').onclick=()=>m.remove();
+  m.querySelector('[data-z]')&&(m.querySelector('[data-z]').onclick=()=>{ shareText(zaloDuyetMsg(S.day)); m.remove(); });
+  m.querySelector('[data-go]')&&(m.querySelector('[data-go]').onclick=()=>{ m.remove(); location.hash='#/duyet/'+S.date; });
+}
+/* nhắc người khai báo các ngày bị trả lại */
+async function traLaiList(){
+  if(!can.write()) return;
+  let list=[]; try{ list=(await api.listDaysBySt('tra_lai')).filter(x=>x.date!==S.date).sort((a,b)=>a.date<b.date?-1:1); }catch(e){ return; }
+  const el=$('#tralai'); if(!el||!list.length) return;
+  el.innerHTML=`<div class="err"><b>${list.length} ngày bị trả lại cần sửa và ký lại:</b> ${list.map(x=>`<button class="btn sm" data-open="${x.date}" style="margin:4px 4px 0 0">${thu(x.date)} ${vn(x.date)}</button>`).join('')}</div>`;
+  el.querySelectorAll('[data-open]').forEach(b=>b.onclick=async()=>{ if(S.dirty&&!confirm('Có thay đổi chưa lưu. Mở ngày khác?')) return; await loadDay(b.dataset.open); viewKhaiBao(); });
+}
+async function refreshPend(){
+  if(!can.admin()) return;
+  try{ S.pendN=(await api.listDaysBySt('cho_duyet')).length; }catch(e){ return; }
+  const a=document.querySelector('nav a[href="#/duyet"]'); if(a) a.innerHTML='Duyệt KT'+(S.pendN?`<span class="cnt">${S.pendN}</span>`:'');
+}
+
+/* ============ DUYỆT KHẤU TRỪ (quản trị) ============ */
+async function viewDuyet(date){
+  if(date) return viewDuyetDay(date);
+  shell(`<div class="eyebrow">Công nhật · ${PROJECT}</div><h1>Duyệt khấu trừ đội</h1><div id="dl"><div class="muted">Đang tải…</div></div>`);
+  const dg=+S.settings.donGia||0;
+  const [cho,tl,gan]=await Promise.all([api.listDaysBySt('cho_duyet'),api.listDaysBySt('tra_lai'),api.listDaysBySt('da_duyet')]);
+  S.pendN=cho.length;
+  const card=(d,btn)=>{ const s=daySum(d); const doi=[...new Set(ktRows(d).map(r=>r.doi))];
+    return `<div class="card kcard"><div><b>${thu(d.date)} ${vn(d.date)}</b> ${stBadge(d)}<br><span class="muted">${esc(doi.join(', ')||'—')} · <b>${fmt(s.ktQD)}</b> công · ${money(s.ktQD*dg)}${d.sign?.kb?' · ký: '+esc(d.sign.kb.name)+' '+fdt(d.sign.kb.at):''}${d.traLai?' · trả lại: '+esc(d.traLai.lyDo):''}${d.sign?.duyet?' · duyệt '+fdt(d.sign.duyet.at):''}</span></div>
+      <a class="btn ${btn}" href="#/duyet/${d.date}">${ktState(d)==='cho_duyet'?'Xem &amp; ký duyệt':'Xem'}</a></div>`; };
+  const by=(a,b)=>a.date<b.date?-1:1;
+  $('#dl').innerHTML=`<h2 style="margin:0 0 10px">Chờ duyệt (${cho.length})</h2>
+    ${cho.length?cho.sort(by).map(d=>card(d,'ok')).join(''):'<div class="card muted">Không có ngày nào chờ duyệt.</div>'}
+    ${tl.length?`<h2 style="margin:16px 0 10px">Đã trả lại, chờ khai báo sửa (${tl.length})</h2>${tl.sort(by).map(d=>card(d,'')).join('')}`:''}
+    ${gan.length?`<h2 style="margin:16px 0 10px">Đã duyệt gần đây</h2>${gan.sort(by).reverse().slice(0,10).map(d=>card(d,'')).join('')}`:''}`;
+  const a=document.querySelector('nav a[href="#/duyet"]'); if(a) a.innerHTML='Duyệt KT'+(S.pendN?`<span class="cnt">${S.pendN}</span>`:'');
+}
+async function viewDuyetDay(date){
+  shell(`<div class="muted">Đang tải…</div>`);
+  const [d0,phs]=await Promise.all([api.getDay(date),api.listPhotos(date)]);
+  if(!d0){ shell(`<div class="card">Không có dữ liệu ngày ${vn(date)}. <a href="#/duyet">Quay lại</a></div>`); return; }
+  const d=Object.assign(blankDay(date),d0), s=daySum(d), dg=+S.settings.donGia||0, kt=ktRows(d), ks=ktState(d);
+  const by=new Map(); kt.forEach(r=>{ const o=by.get(r.doi)||{qd:0,n:0}; o.qd+=r.qd; o.n++; by.set(r.doi,o); });
+  const caKT=new Set(kt.map(r=>r.c.k)), ph=phs.filter(p=>caKT.has(p.ca));
+  const kb=d.sign?.kb, dy=d.sign?.duyet;
+  shell(`<div class="noprint"><a href="#/duyet" class="btn sm">‹ Danh sách</a></div>
+    <div id="dash" style="margin-top:10px">
+      <div class="ptitle">PHIẾU XÁC NHẬN CÔNG NHẬT KHẤU TRỪ ĐỘI THI CÔNG</div>
+      <p style="text-align:center;margin:-6px 0 12px" class="muted">Dự án ${PROJECT} · Ngày ${thu(date)} ${vn(date)} · <span class="noprint">${stBadge(d)}</span></p>
+      ${kt.length?`<table class="pt"><thead><tr><th class="n">STT</th><th>Đội thi công</th><th>Ca</th><th>Công việc – vị trí</th><th>Giám sát</th><th class="n">SL</th><th>Giờ</th><th class="n">Công QĐ</th><th class="n">Thành tiền</th></tr></thead><tbody>
+        ${kt.sort((a,b)=>(a.doi||'').localeCompare(b.doi||'','vi')).map((r,i)=>`<tr><td class="n">${i+1}</td><td>${esc(r.doi)}</td><td>${r.c.n}</td><td>${esc(r.viec)}${r.vitri?' – '+esc(r.vitri):''}</td><td>${esc(r.gs)}</td><td class="n">${r.sl}</td><td>${esc(rowT(r,r.c).join('–'))}</td><td class="n">${fmt(r.qd)}</td><td class="n">${money(r.qd*dg)}</td></tr>`).join('')}
+        ${[...by].map(([k,o])=>`<tr class="grp"><td></td><td colspan="6">Cộng ${esc(k)}</td><td class="n">${fmt(o.qd)}</td><td class="n">${money(o.qd*dg)}</td></tr>`).join('')}
+        <tr class="grp"><td></td><td colspan="6">TỔNG KHẤU TRỪ (đơn giá ${money(dg)}/công)</td><td class="n">${fmt(s.ktQD)}</td><td class="n">${money(s.ktQD*dg)}</td></tr></tbody></table>`
+        :'<p class="muted">Ngày này không có dòng khấu trừ đội.</p>'}
+      <div class="sigs">
+        <div><span class="t">NGƯỜI KHAI BÁO</span>${kb?`<img src="${kb.sig}" alt="Chữ ký người khai báo"><span><span class="nm">${esc(kb.name)}</span><br><span class="tm">${fdt(kb.at)}</span></span>`:'<span class="tm">Chưa ký</span>'}</div>
+        <div><span class="t">NGƯỜI DUYỆT (CHP NTC)</span>${dy?`<img src="${dy.sig}" alt="Chữ ký người duyệt"><span><span class="nm">${esc(dy.name)}</span><br><span class="tm">${fdt(dy.at)}</span></span>`:'<span class="tm">Chưa duyệt</span>'}</div>
+      </div>
+    </div>
+    ${ph.length?`<section class="card noprint" style="margin-top:14px"><h2>Ảnh các ca có khấu trừ (${ph.length})</h2><div class="photos">${ph.map(p=>`<div class="ph"><img src="${p.data}" data-zoom alt="Ảnh ${p.ca}"></div>`).join('')}</div></section>`
+      :`<p class="muted noprint" style="margin-top:10px">Không còn ảnh của ngày này trên hệ thống.</p>`}
+    ${ks==='tra_lai'&&d.traLai?`<div class="err noprint">Đã trả lại lúc ${fdt(d.traLai.at)}: ${esc(d.traLai.lyDo)}</div>`:''}
+    <div class="bar"><div class="in"><div class="msg" id="msg"></div>
+      ${ks==='cho_duyet'?'<button class="btn" id="tl">Trả lại</button><button class="btn ok" id="ky">Ký duyệt khấu trừ</button>':''}
+      ${ks==='da_duyet'?'<button class="btn" id="huy">Huỷ duyệt</button>':''}
+      <button class="btn blue" id="prt">In / lưu PDF</button></div></div>`);
+  $('main').onclick=e=>{ if(e.target.hasAttribute('data-zoom')) zoom(e.target.src); };
+  $('#prt').onclick=()=>window.print();
+  $('#ky')&&($('#ky').onclick=async()=>{
+    const sig=await askSign(`<p style="font-size:14px;margin:0">Duyệt khấu trừ <b>${fmt(s.ktQD)} công = ${money(s.ktQD*dg)}</b> ngày ${vn(date)} cho: ${esc([...by.keys()].join(', '))}.</p>`,'Ký duyệt khấu trừ'); if(!sig) return;
+    await api.saveDay(date,{ktSt:'da_duyet',sign:{duyet:{name:S.user.name,email:S.user.email,sig,at:Date.now()}}});
+    if(S.date===date) await loadDay(date); toast('Đã ký duyệt','ok'); viewDuyetDay(date); refreshPend(); });
+  $('#tl')&&($('#tl').onclick=async()=>{
+    const lyDo=(prompt('Lý do trả lại (người khai báo sẽ thấy để sửa):')||'').trim(); if(!lyDo) return;
+    await api.saveDay(date,{ktSt:'tra_lai',locked:false,lockedBy:'',lockedAt:0,traLai:{by:S.user.name,at:Date.now(),lyDo},sign:{kb:null,duyet:null}});
+    if(S.date===date) await loadDay(date); refreshPend();
+    if(confirm('Đã trả lại. Nhắn Zalo cho người khai báo?')) shareText(`Công nhật HH12 ngày ${vn(date)} bị trả lại: ${lyDo}\nVào web sửa và ký lại: ${location.origin+location.pathname}#/khai-bao`);
+    viewDuyetDay(date); });
+  $('#huy')&&($('#huy').onclick=async()=>{ if(!confirm('Huỷ chữ ký duyệt ngày '+vn(date)+'? Ngày quay về trạng thái chờ duyệt.')) return;
+    await api.saveDay(date,{ktSt:'cho_duyet',sign:{duyet:null}}); refreshPend(); viewDuyetDay(date); });
+}
+
 async function copyPrev(){
   const k=S.caSel, c=CAS.find(x=>x.k===k);
   let src=null, d=S.date;
@@ -519,7 +714,8 @@ async function upload(input){
 async function cleanPhotos(){
   if(!can.write()) return;
   const keep=Math.max(1,+S.settings.photoKeep||1), cutoff=addDays(today(),-(keep-1));
-  try{ const old=await api.listPhotosBefore(cutoff); for(const p of old) await api.delPhoto(p.id); }catch(e){ console.warn('cleanPhotos',e); }
+  try{ const keepD=new Set([...(await api.listDaysBySt('cho_duyet')),...(await api.listDaysBySt('tra_lai'))].map(x=>x.date));
+    const old=await api.listPhotosBefore(cutoff); for(const p of old) if(!keepD.has(p.date)) await api.delPhoto(p.id); }catch(e){ console.warn('cleanPhotos',e); }
 }
 async function syncPhotoCount(k){ const n=S.photos.filter(p=>p.ca===k).length; S.day.photos={...S.day.photos,[k]:n}; await api.saveDay(S.date,{date:S.date,photos:{[k]:n}}); }
 function zoom(src){ const d=document.createElement('div'); d.className='lb'; d.innerHTML=`<img src="${src}" alt="Ảnh phóng to"><button class="btn">Đóng</button>`; d.onclick=()=>d.remove(); document.body.appendChild(d); }
@@ -594,14 +790,15 @@ async function viewTongHop(){
 }
 function ktByDoi(days){
   const m=new Map();
-  days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(r=>{ if(!r.kt) return; const k=r.doi||'(Chưa chọn đội)'; const o=m.get(k)||{hc:0,tc:0,luot:0};
+  days.filter(ktOK).forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(r=>{ if(!r.kt) return; const k=r.doi||'(Chưa chọn đội)'; const o=m.get(k)||{hc:0,tc:0,luot:0};
     if(c.tc) o.tc+=(+r.sl||0)*hrs(r.tu,r.den); else { o.hc+=(+r.sl||0)/2; o.luot+=(+r.sl||0); } m.set(k,o); })));
   return new Map([...m].sort((a,b)=>a[0].localeCompare(b[0],'vi')));
 }
 function renderSum(){
   const days=S.sumDays, T={sang:0,chieu:0,congHC:0,tcTruaGio:0,tcToiGio:0,gioTC:0,congQD:0,ktQD:0,anh:0};
-  const rows=days.map((d,i)=>{ const s=daySum(d); for(const k in T) T[k]+=s[k];
-    return `<tr><td class="n">${i+1}</td><td>${thu(d.date)} ${vn(d.date)}</td><td class="n">${s.sang}</td><td class="n">${s.chieu}</td><td class="n">${fmt(s.congHC)}</td><td class="n">${fmt(s.tcTruaGio)}</td><td class="n">${fmt(s.tcToiGio)}</td><td class="n">${fmt(s.gioTC)}</td><td class="n">${fmt(s.congQD)}</td><td class="n">${fmt(s.ktQD)}</td><td class="n">${s.anh}</td><td>${d.locked?'<span class="badge ok">Đã chốt</span>':'<span class="badge warn">Nháp</span>'}</td></tr>`; }).join('');
+  let cho=0, choN=0;
+  const rows=days.map((d,i)=>{ const s=daySum(d); if(!ktOK(d)){ cho+=s.ktQD; if(s.ktQD) choN++; s.ktQD=0; } for(const k in T) T[k]+=s[k];
+    return `<tr><td class="n">${i+1}</td><td>${thu(d.date)} ${vn(d.date)}</td><td class="n">${s.sang}</td><td class="n">${s.chieu}</td><td class="n">${fmt(s.congHC)}</td><td class="n">${fmt(s.tcTruaGio)}</td><td class="n">${fmt(s.tcToiGio)}</td><td class="n">${fmt(s.gioTC)}</td><td class="n">${fmt(s.congQD)}</td><td class="n">${fmt(s.ktQD)}</td><td class="n">${s.anh}</td><td>${stBadge(d)}</td></tr>`; }).join('');
   const g=new Map();
   days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(r=>{ const k=r.gs||'(Chưa phân)'; const o=g.get(k)||{hc:0,tc:0,luot:0}; if(c.tc) o.tc+=(+r.sl||0)*hrs(r.tu,r.den); else { o.hc+=(+r.sl||0)/2; o.luot+=(+r.sl||0);} g.set(k,o); })));
   const kt=ktByDoi(days), dg=+S.settings.donGia||0;
@@ -612,11 +809,12 @@ function renderSum(){
       <div class="stat"><div class="v">${fmt(T.congHC)}</div><div class="l">Tổng công HC</div></div>
       <div class="stat"><div class="v">${fmt(T.gioTC)}</div><div class="l">Tổng giờ công TC</div></div>
       <div class="stat"><div class="v">${fmt(T.congQD)}</div><div class="l">Công quy đổi</div></div>
-      <div class="stat"><div class="v" style="color:var(--warn)">${money(T.ktQD*dg)}</div><div class="l">Khấu trừ đội (${fmt(T.ktQD)} công)</div></div>
+      <div class="stat"><div class="v" style="color:var(--warn)">${money(T.ktQD*dg)}</div><div class="l">Khấu trừ đội đã duyệt (${fmt(T.ktQD)} công)</div></div>
     </div>
+    ${choN?`<div class="err" style="background:var(--warn2);color:var(--warn)">${choN} ngày có ${fmt(cho)} công khấu trừ <b>chưa được duyệt</b> nên chưa tính tiền.${can.admin()?' <a href="#/duyet">Vào duyệt</a>':''}</div>`:''}
     ${unl?`<div class="err">${unl} ngày chưa chốt — số liệu có thể còn thay đổi.</div>`:''}
     <div class="tw" style="margin-bottom:14px"><table>
-      <tr><th class="n">STT</th><th>Ngày</th><th class="n">SL sáng</th><th class="n">SL chiều</th><th class="n">Công HC</th><th class="n">Giờ công TC trưa</th><th class="n">Giờ công TC tối</th><th class="n">Tổng giờ TC</th><th class="n">Công quy đổi</th><th class="n">Công KT đội</th><th class="n">Ảnh</th><th>Trạng thái</th></tr>
+      <tr><th class="n">STT</th><th>Ngày</th><th class="n">SL sáng</th><th class="n">SL chiều</th><th class="n">Công HC</th><th class="n">Giờ công TC trưa</th><th class="n">Giờ công TC tối</th><th class="n">Tổng giờ TC</th><th class="n">Công quy đổi</th><th class="n">Công KT đội (đã duyệt)</th><th class="n">Ảnh</th><th>Trạng thái</th></tr>
       ${rows}<tr class="tot"><td></td><td>TỔNG</td><td class="n">${T.sang}</td><td class="n">${T.chieu}</td><td class="n">${fmt(T.congHC)}</td><td class="n">${fmt(T.tcTruaGio)}</td><td class="n">${fmt(T.tcToiGio)}</td><td class="n">${fmt(T.gioTC)}</td><td class="n">${fmt(T.congQD)}</td><td class="n">${fmt(T.ktQD)}</td><td class="n">${T.anh}</td><td></td></tr>
     </table></div>
     <h2 style="margin:6px 0 10px">Khấu trừ theo đội thi công</h2>
@@ -647,17 +845,17 @@ async function exportXlsx(){
 
   // Sheet 1: tổng hợp theo ngày
   const w1=wb.addWorksheet('TH theo ngay');
-  const c1=[['STT',6],['Ngày',12],['Thứ',6],['SL sáng',9],['SL chiều',9],['Công HC',10],['SL TC trưa',9],['Giờ công TC trưa',11],['SL TC tối',9],['Giờ công TC tối',11],['Tổng giờ TC',11],['Công quy đổi',11],['Công KT đội',11],['Số ảnh',8],['Trạng thái',11],['Ghi chú',36]];
+  const c1=[['STT',6],['Ngày',12],['Thứ',6],['SL sáng',9],['SL chiều',9],['Công HC',10],['SL TC trưa',9],['Giờ công TC trưa',11],['SL TC tối',9],['Giờ công TC tối',11],['Tổng giờ TC',11],['Công quy đổi',11],['Công KT đội (đã duyệt)',12],['Số ảnh',8],['Trạng thái',24],['Ghi chú',36]];
   head(w1,'BẢNG TỔNG HỢP CÔNG NHẬT HẰNG NGÀY',sub,c1);
   days.forEach((d,i)=>{ const s=daySum(d), r=5+i;
-    w1.getRow(r).values=[i+1,vn(d.date),thu(d.date),s.sang,s.chieu,{formula:`(D${r}+E${r})/2`},s.tcTruaSL,s.tcTruaGio,s.tcToiSL,s.tcToiGio,{formula:`H${r}+J${r}`},{formula:`F${r}+K${r}/8`},Math.round(s.ktQD*1000)/1000,s.anh,d.locked?'Đã chốt':'Nháp',d.note||''];
-    if(!d.locked) w1.getCell(r,15).font={color:{argb:'FFB7791F'},bold:true};
+    w1.getRow(r).values=[i+1,vn(d.date),thu(d.date),s.sang,s.chieu,{formula:`(D${r}+E${r})/2`},s.tcTruaSL,s.tcTruaGio,s.tcToiSL,s.tcToiGio,{formula:`H${r}+J${r}`},{formula:`F${r}+K${r}/8`},ktOK(d)?Math.round(s.ktQD*1000)/1000:0,s.anh,stText(d)+(d.sign?.kb?` · ký: ${d.sign.kb.name}`:'')+(d.sign?.duyet?` · duyệt: ${d.sign.duyet.name} ${fdt(d.sign.duyet.at)}`:''),d.note||''];
+    if(!ktOK(d)) w1.getCell(r,15).font={color:{argb:'FFB7791F'},bold:true};
   });
   const L1=4+days.length, T1=L1+1;
   w1.getRow(T1).values=['','TỔNG','',...'DEFGHIJKLMN'.split('').map(c=>({formula:`SUM(${c}5:${c}${L1})`})),'',''];
   w1.getRow(T1).font={bold:true}; for(let c=1;c<=16;c++) w1.getCell(T1,c).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8F0FB'}};
   box(w1,5,T1,16); for(let r=5;r<=L1;r++) w1.getCell(r,16).alignment={wrapText:true,vertical:'top'};
-  w1.getCell(T1+2,1).value='Quy ước: 1 người ca sáng hoặc ca chiều = 0,5 công; Giờ công TC = SL × (Đến − Từ); Công quy đổi = Công HC + Tổng giờ TC / 8. Công KT đội: phần công nhật tick "Khấu trừ đội".'; w1.getCell(T1+2,1).font={italic:true,size:9};
+  w1.getCell(T1+2,1).value='Quy ước: 1 người ca sáng hoặc ca chiều = 0,5 công; Giờ công TC = SL × (Đến − Từ); Công quy đổi = Công HC + Tổng giờ TC / 8. Công KT đội: chỉ tính các ngày đã được quản trị ký duyệt khấu trừ.'; w1.getCell(T1+2,1).font={italic:true,size:9};
 
   // Sheet 2: chi tiết  (C=Ca, D=GS, G=Đội, H=Khấu trừ, I=SL, L=Số giờ, M=Người×giờ, N=Công HC, O=Công QĐ)
   const w2=wb.addWorksheet('Chi tiet');
@@ -665,7 +863,7 @@ async function exportXlsx(){
   head(w2,'CHI TIẾT PHÂN CÔNG CÔNG NHẬT',sub,c2);
   let r2=5,n=0;
   days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ n++;
-    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?'Có':'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8`}:{formula:`N${r2}`},d.ca[c.k].note||''];
+    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?(ktOK(d)?'Có':'Chờ duyệt'):'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8`}:{formula:`N${r2}`},d.ca[c.k].note||''];
     if(c.tc) for(let k=1;k<=16;k++) w2.getCell(r2,k).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDF3E1'}};
     if(x.kt) w2.getCell(r2,8).font={bold:true,color:{argb:'FFB3261E'}};
     r2++; })));
@@ -695,7 +893,7 @@ async function exportXlsx(){
   // chi tiết từng lượt khấu trừ, gom theo đội — để gửi đội đối chiếu
   let r4=T4+3; w4.getCell(r4-1,1).value='CHI TIẾT CÁC LƯỢT KHẤU TRỪ'; w4.getCell(r4-1,1).font={bold:true,color:{argb:NAVY}};
   ['STT','Đội thi công','Ngày','Ca','Công việc – vị trí','SL','Giờ','Công quy đổi'].forEach((h,i)=>{ const x=w4.getCell(r4,i+1); x.value=h; x.font={bold:true,color:{argb:'FFFFFFFF'}}; x.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; x.border=B; });
-  const det=[]; days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ if(x.kt) det.push({d,c,x}); })));
+  const det=[]; days.filter(ktOK).forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ if(x.kt) det.push({d,c,x}); })));
   det.sort((a,b)=>(a.x.doi||'').localeCompare(b.x.doi||'','vi')||(a.d.date<b.d.date?-1:a.d.date>b.d.date?1:0));
   const r4s=r4+1; det.forEach((o,i)=>{ r4++; w4.getRow(r4).values=[i+1,o.x.doi,vn(o.d.date),o.c.n,`${o.x.viec}${o.x.vitri?' – '+o.x.vitri:''} (GS ${o.x.gs})`,+o.x.sl||0,rowT(o.x,o.c).join('–'),Math.round(rowQD(o.x,o.c)*1000)/1000]; });
   if(det.length) box(w4,r4s,r4,8);
@@ -727,7 +925,7 @@ async function viewCaiDat(){
     <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="preq" style="width:20px;min-height:20px" ${s.photoRequired?'checked':''}> Bắt buộc có ảnh mỗi ca có người mới được chốt ngày</label>
     <div class="row" style="margin-top:14px"><button class="btn pri" id="saveS">Lưu cài đặt</button><span id="msg"></span></div></section>
   </div>
-  <section class="card"><h2>Người dùng được vào web</h2><p class="muted">Đăng nhập bằng tài khoản Google. Chưa có trong danh sách thì không xem được gì.</p>
+  <section class="card"><h2>Người dùng được vào web</h2><p class="muted">Ai đăng nhập bằng tài khoản Google lần đầu sẽ tự vào danh sách với quyền <b>Khai báo công nhật</b> (ghi chú "tự đăng ký"). Muốn hạn chế thì đổi vai trò thành "Chỉ xem" hoặc "Chặn".</p>
     <div class="row" style="margin:10px 0">
       <label class="f" style="flex:2;min-width:200px">Email Google<input id="ue" type="email" placeholder="ten@gmail.com"></label>
       <label class="f" style="flex:2;min-width:160px">Họ tên<input id="un"></label>
@@ -735,7 +933,7 @@ async function viewCaiDat(){
       <button class="btn blue" id="uadd">Thêm</button></div>
     <div class="tw"><table><tr><th>Email</th><th>Họ tên</th><th>Vai trò</th><th></th></tr>
       ${ADMIN_EMAILS.map(e=>`<tr><td>${esc(e)}</td><td>—</td><td>Quản trị gốc</td><td></td></tr>`).join('')}
-      ${users.filter(u=>!ADMIN_EMAILS.includes(u.email)).map(u=>`<tr><td>${esc(u.email)}</td><td>${esc(u.name)}</td><td>${esc(ROLES[u.role]||u.role)}</td><td><button class="btn sm" data-udel="${esc(u.email)}">Xoá</button></td></tr>`).join('')}
+      ${users.filter(u=>!ADMIN_EMAILS.includes(u.email)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(u=>`<tr><td>${esc(u.email)}${u.auto?' <span class="muted">· tự đăng ký</span>':''}</td><td>${esc(u.name)}</td><td><select data-urole="${esc(u.email)}">${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${k===u.role?'selected':''}>${v}</option>`).join('')}</select></td><td><button class="btn sm" data-udel="${esc(u.email)}">Xoá</button></td></tr>`).join('')}
     </table></div></section>`);
   $('#saveS').onclick=async()=>{
     const gs=$('#gs').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{ const [n,...r]=l.split('|'); return {name:n.trim(),note:r.join('|').trim()}; });
@@ -745,6 +943,7 @@ async function viewCaiDat(){
   };
   $('#uadd').onclick=async()=>{ const e=$('#ue').value.trim().toLowerCase(); if(!/^\S+@\S+\.\S+$/.test(e)){ toast('Email không hợp lệ','bad'); return; }
     await api.saveUser(e,{name:$('#un').value.trim()||e,role:$('#ur').value}); viewCaiDat(); };
+  $('main').addEventListener('change',async ev=>{ const e=ev.target.dataset.urole; if(!e) return; const u=users.find(x=>x.email===e); const {email,...rest}=u; await api.saveUser(e,{...rest,role:ev.target.value}); toast('Đã đổi quyền '+e,'ok'); });
   $('main').addEventListener('click',async ev=>{ const e=ev.target.dataset.udel; if(e&&confirm('Xoá quyền của '+e+'?')){ await api.delUser(e); viewCaiDat(); } });
 }
 
@@ -765,10 +964,12 @@ async function boot(){
     try{
       let role=ADMIN_EMAILS.includes(u.email)?'admin':null, name=u.name;
       if(!role){ const rec=await api.getUser(u.email); if(rec){ role=rec.role; name=rec.name||name; } }
-      if(!role){ loginView(`Tài khoản <b>${esc(u.email)}</b> chưa được cấp quyền. Báo quản trị (anh Hiếu) thêm email này vào mục Cài đặt.<br><br><button class="btn sm" id="lo2">Đăng xuất</button>`); $('#lo2').onclick=()=>api.logout(); return; }
+      if(!role){ // lần đầu đăng nhập: tự đăng ký, được khai báo ngay
+        await api.saveUser(u.email,{name,role:AUTO_ROLE,auto:true,createdAt:Date.now()}); role=AUTO_ROLE; }
+      if(role==='chan'){ loginView(`Tài khoản <b>${esc(u.email)}</b> đã bị quản trị khoá quyền vào web công nhật. Cần mở lại thì báo anh Hiếu.<br><br><button class="btn sm" id="lo2">Đăng xuất</button>`); $('#lo2').onclick=()=>api.logout(); return; }
       S.user={email:u.email,name}; S.role=role;
       const st=await api.getSettings(); S.settings=Object.assign({},DEF_SETTINGS,st||{}); S.settings.hours=Object.assign({},DEF_SETTINGS.hours,st?.hours||{});
-      S.loadedOn=today(); await cleanPhotos(); await loadDay(today()); route();
+      S.loadedOn=today(); await cleanPhotos(); await loadDay(today()); await refreshPend(); route();
     }catch(e){ loginView('Lỗi tải dữ liệu: '+esc(e.message||e)); }
   });
 }
