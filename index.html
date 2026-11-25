@@ -321,7 +321,8 @@ const S = { user:null, role:null, settings:null, date:today(), day:null, photos:
 const can = { write: () => S.role==='admin'||S.role==='khaibao', admin: () => S.role==='admin' };
 const editable = () => can.write() && !(S.day?.locked);
 const isMine = r => !r.by || r.by===S.user.email;
-function canEditRow(r){ if(!editable()) return false; return can.admin() || isMine(r); }
+// dòng đã lưu: chỉ quản trị sửa/xoá; người khai báo chỉ sửa dòng mới thêm, chưa lưu
+function canEditRow(r){ if(!editable()) return false; return can.admin() || (isMine(r) && !r._saved); }
 const canSignRow = r => editable() && ['nhap','tl'].includes(rowSt(S.day,r)) && (isMine(r) || can.admin());
 const canUnsignRow = r => editable() && rowSt(S.day,r)==='ky' && r.ky && (r.ky.email===S.user.email || can.admin());
 
@@ -347,7 +348,7 @@ function shell(inner){
   <main>${inner}</main>`;
   $('#out').onclick=()=>api.logout();
 }
-const APP_VER='2026-11-25d';
+const APP_VER='2026-11-25e';
 (async()=>{ try{ const t=await (await fetch(location.pathname+'?chk='+Date.now(),{cache:'no-store'})).text(); const v=(t.match(/APP_VER='([^']+)'/)||[])[1];
   if(v && v!==APP_VER && !S.dirty) location.replace(location.pathname+'?v='+v+location.hash); }catch(e){} })();
 function route(){
@@ -368,7 +369,7 @@ async function loadDay(date){
   const [d,p]=await Promise.all([api.getDay(date),api.listPhotos(date)]);
   S.day = Object.assign(blankDay(date), d||{});
   CAS.forEach(c=>{ S.day.ca[c.k]=Object.assign({rows:[],note:''},S.day.ca?.[c.k]||{}); });
-  normRows(S.day); S.del=new Set();
+  normRows(S.day); allRows(S.day).forEach(({r})=>{ r._saved=true; }); S.del=new Set();
   S.photos=p; S.dirty=false;
 }
 const dateBar = (extra='') => `<div class="row" style="margin-bottom:14px">
@@ -397,7 +398,7 @@ function rowHtml(k,i,r,roAll){
   const gsDis=(ro||!can.admin())?'disabled':'';
   return `<div class="r${r.kt?' kt':''}${tc?' tc':''}" data-ca="${k}" data-i="${i}">
     <span class="no">${i+1}</span>
-    <label class="a1">Giám sát${r.by===S.user.email?' <span class="mine">(của tôi)</span>':''}<select data-f="gs" ${gsDis}>${gsOptions(r.gs)}</select></label>
+    <label class="a1">Giám sát${r.by===S.user.email?' <span class="mine">(của tôi)</span>':''}${r._saved&&!can.admin()?' <span class="mine" style="color:var(--muted)">· đã lưu, khoá</span>':''}<select data-f="gs" ${gsDis}>${gsOptions(r.gs)}</select></label>
     <label class="a4">Số người<input data-f="sl" type="number" min="0" inputmode="numeric" value="${esc(r.sl)}" placeholder="0" ${dis}></label>
     ${ro?'<span class="a8"></span>':`<button class="x a8" data-del aria-label="Xoá dòng">×</button>`}
     <label class="a2">Làm việc gì<input data-f="viec" list="dl-viec" value="${esc(r.viec)}" placeholder="VD: Vận chuyển thiết bị" ${dis}></label>
@@ -462,7 +463,7 @@ function viewKhaiBao(){
     ${ks==='tra_lai'&&d.traLai?`<div class="err"><b>Anh ${esc(d.traLai.by)} trả lại ngày ${vn(S.date)} lúc ${fdt(d.traLai.at)}:</b> ${esc(d.traLai.lyDo)}</div>`:''}
     ${ks==='cho_duyet'?`<div class="card" style="border-color:#e9c98f;background:var(--warn2)"><b>Đã ký chốt, đang chờ duyệt khấu trừ.</b> ${fmt(daySum(d).ktQD)} công trừ đội · người ký: ${esc(d.sign?.kb?.name||'')} lúc ${fdt(d.sign?.kb?.at)}. <button class="btn sm" id="zaloDuyet" style="margin-left:6px">Nhắn Zalo nhắc duyệt</button></div>`:''}
     ${ks==='da_duyet'?`<div class="card" style="border-color:#bfe0cc;background:var(--ok2)"><b>Đã duyệt khấu trừ</b> · ${esc(d.sign?.duyet?.name||'')} lúc ${fdt(d.sign?.duyet?.at)}.</div>`:''}
-    ${can.write()&&!d.locked?`<div class="card" style="padding:10px 14px;font-size:13px"><b>Cách làm:</b> mỗi giám sát tự bấm <b>+ Thêm việc</b> để khai báo người mình dùng, chụp ảnh, rồi bấm <b>Lưu</b>. Mỗi giám sát chỉ sửa được dòng của mình.${S.me?.gsName?` Tên giám sát của bạn: <b>${esc(S.me.gsName)}</b> <button class="btn sm" id="chgName">Đổi</button>`:''}</div>`:''}
+    ${can.write()&&!d.locked?`<div class="card" style="padding:10px 14px;font-size:13px"><b>Cách làm:</b> mỗi giám sát tự bấm <b>+ Thêm việc</b> để khai báo người mình dùng, chụp ảnh, rồi bấm <b>Lưu</b>. <b>Sau khi Lưu, dòng bị khoá</b> — cần sửa thì báo quản trị (anh Hiếu).${S.me?.gsName?` Tên giám sát của bạn: <b>${esc(S.me.gsName)}</b> <button class="btn sm" id="chgName">Đổi</button>`:''}</div>`:''}
     <div class="steps" id="steps">${stepsHtml()}</div>
     ${d.locked&&ks!=='cho_duyet'&&ks!=='da_duyet'?`<div class="err"><b>Ngày ${vn(S.date)} đã chốt nên không nhập được nữa.</b>${can.admin()?' Muốn sửa thì bấm "Mở chốt để sửa" ở dưới, hoặc bấm "Hôm nay" để sang ngày mới.':' Cần sửa thì báo quản trị mở chốt.'}</div>`:''}
     <div id="errs"></div>
@@ -505,7 +506,15 @@ function viewKhaiBao(){
     else if(b.dataset.delph){ if(!confirm('Xoá ảnh này?')) return; const p=S.photos.find(x=>x.id===b.dataset.delph); await api.delPhoto(p.id); S.photos=S.photos.filter(x=>x!==p); await syncPhotoCount(p.ca); rerenderCa(p.ca); }
     else if(b.hasAttribute('data-zoom')) zoom(b.src);
   });
-  $('#save')&&($('#save').onclick=()=>saveDay(false));
+  $('#save')&&($('#save').onclick=()=>{
+    if(!can.admin()){
+      const neu=[]; CAS.forEach(c=>S.day.ca[c.k].rows.forEach((r,i)=>{ if(!r._saved && isMine(r)) neu.push({r,c,i}); }));
+      const errs=neu.flatMap(({r,c,i})=>rowErrs(c,r,i)).filter(e=>!/ảnh/.test(e));
+      if(errs.length){ $('#errs').innerHTML=`<div class="err"><b>Chưa lưu được, cần bổ sung:</b><ul>${[...new Set(errs)].map(e=>`<li>${esc(e)}</li>`).join('')}</ul></div>`; $('#errs').scrollIntoView({behavior:'smooth'}); return; }
+      $('#errs').innerHTML='';
+      if(neu.length && !confirm(`Lưu ${neu.length} dòng? Sau khi lưu bạn KHÔNG sửa/xoá được nữa, cần sửa phải báo quản trị.`)) return;
+    }
+    saveDay(false); });
   $('#chgName')&&($('#chgName').onclick=async()=>{ const n=await pickGsName(S.me?.gsName); if(n){ viewKhaiBao(); } });
   $('#unlock')&&($('#unlock').onclick=async()=>{ if(!confirm('Mở chốt ngày '+vn(S.date)+' để sửa?'+(ktState(S.day)==='da_duyet'?' Phần duyệt khấu trừ sẽ bị huỷ, người khai báo phải ký lại.':''))) return;
     const o={locked:false,lockedBy:'',lockedAt:0,ktSt:'',sign:{kb:null,duyet:null}}; await api.saveDay(S.date,o); Object.assign(S.day,o); refreshPend(); viewKhaiBao(); });
@@ -531,7 +540,7 @@ function rowErrs(c,r,i){
 const cleanRow = (r,c) => ({id:r.id||newId(),by:r.by||S.user.email,gs:r.gs||'',viec:String(r.viec||'').trim(),vitri:String(r.vitri||'').trim(),doi:r.doi||'',kt:!!r.kt,sl:+r.sl||0,tu:rowT(r,c)[0],den:rowT(r,c)[1],ky:r.ky||null,tl:r.tl||null});
 /* gộp: chỉ ghi đè những dòng mình được sửa, giữ nguyên dòng của giám sát khác */
 function mergeRows(srv,loc,del,cur,c){
-  const me=S.user.email, okEdit=sr=>can.admin() || ((!sr.by||sr.by===me) && !cur?.duyet?.[sr.id]);
+  const okEdit=()=>can.admin();   // dòng đã có trên hệ thống chỉ quản trị được ghi đè / xoá
   const L=new Map(loc.map(r=>[r.id,r])), out=[];
   srv.forEach(sr=>{ if(del.has(sr.id)&&okEdit(sr)) return; out.push(L.has(sr.id)&&okEdit(sr)?cleanRow(L.get(sr.id),c):sr); });
   const ids=new Set(srv.map(r=>r.id)); loc.forEach(r=>{ if(!ids.has(r.id)) out.push(cleanRow(r,c)); });
