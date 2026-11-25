@@ -413,7 +413,7 @@ function shell(inner){
   $('#out')&&($('#out').onclick=()=>api.logout());
   $('#adm')&&($('#adm').onclick=()=>api.login().catch(e=>toast('Không đăng nhập được: '+(e.message||e),'bad')));
 }
-const APP_VER='2026-11-25h';
+const APP_VER='2026-11-25i';
 (async()=>{ try{ const t=await (await fetch(location.pathname+'?chk='+Date.now(),{cache:'no-store'})).text(); const v=(t.match(/APP_VER='([^']+)'/)||[])[1];
   if(v && v!==APP_VER && !S.dirty) location.replace(location.pathname+'?v='+v+location.hash); }catch(e){} })();
 function route(){
@@ -1138,6 +1138,7 @@ async function boot(){
       if(!role){ // lần đầu đăng nhập: tự đăng ký, được khai báo ngay
         await api.saveUser(u.email,{name,role:AUTO_ROLE,auto:true,createdAt:Date.now()}); role=AUTO_ROLE; }
       if(role==='chan'){ loginView(`Tài khoản <b>${esc(u.email)}</b> đã bị quản trị khoá quyền vào web công nhật. Cần mở lại thì báo anh Hiếu.<br><br><button class="btn sm" id="lo2">Đăng xuất</button>`); $('#lo2').onclick=()=>api.logout(); return; }
+      if(role==='xem') role='khaibao';   // ai vào cũng khai báo được (giống khách)
       S.user={email:u.email,name}; S.role=role;
       const st=await api.getSettings(); S.settings=Object.assign({},DEF_SETTINGS,st||{}); S.settings.hours=Object.assign({},DEF_SETTINGS.hours,st?.hours||{});
       try{ S.me=await api.getMine(u.email); }catch(e){ S.me={}; }
