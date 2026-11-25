@@ -274,7 +274,7 @@ const DEF_SETTINGS = {
   // Danh sách đội thi công — đồng bộ với web thiết bị HH12 (phieu-hh12)
   doi:['An Bình (hoàn thiện)','An Phát','BCH','DPCONS','Đỗ Đình Tán','ĐTC Khoa','ĐTC Liên Copha','ĐTC Trường','ĐTC Xây Lắp Copha','Đức Hiểu','Gia Phạm','Hải Đăng','Hòa Thùy','Hoàng Văn Tiến','Lê Văn Thuật','Minh Sơn','Nguyễn Đức Kiên','Nhật Minh (hoàn thiện)','NTP Bảo Hưng','NTP Gia Phong','NTP Neo','NTP Quang Thái','NTP Trung Hải','Tổ Thép Lương','Tuấn Anh','UTCONTS'],
   donGia:400000, heSoTC:1.5,
-  photoKeep:1,
+  photoKeep:60,   // giữ ảnh 60 ngày để QS đối chiếu khi xuất Excel
   photoRequired:true
 };
 
@@ -342,6 +342,7 @@ async function initStore(){
     async listDaysGt(f){ const q=await F.getDocs(F.query(F.collection(fs,'cn_days'),F.where(f,'>',0))); return q.docs.map(x=>x.data()); },
     mergeDay: (date,fn) => F.runTransaction(fs, async tx => { const ref=d('cn_days',date); const sn=await tx.get(ref); const cur=sn.exists()?sn.data():null; const o=fn(cur); tx.set(ref,o,{merge:true}); return o; }),
     async listPhotos(date){ const q=await F.getDocs(F.query(F.collection(fs,'cn_photos'),F.where('date','==',date))); return q.docs.map(x=>({id:x.id,...x.data()})).sort((a,b)=>a.at-b.at); },
+    async listPhotosRange(a,b){ const q=await F.getDocs(F.query(F.collection(fs,'cn_photos'),F.where('date','>=',a),F.where('date','<=',b))); return q.docs.map(x=>({id:x.id,...x.data()})); },
     async listPhotosBefore(d){ const q=await F.getDocs(F.query(F.collection(fs,'cn_photos'),F.where('date','<',d),F.limit(300))); return q.docs.map(x=>({id:x.id,date:x.data().date})); },
     async addPhoto(p){ const r=await F.addDoc(F.collection(fs,'cn_photos'),p); return r.id; },
     delPhoto: id => F.deleteDoc(d('cn_photos',id)),
@@ -372,6 +373,7 @@ function demoApi(){
     listDaysGt: async f => Object.values(st.days).filter(x=>(+x[f]||0)>0).map(clone),
     mergeDay: async (date,fn) => { const o=fn(clone(st.days[date])||null); st.days[date]=deep(st.days[date]||{},clone(o)); save(); return o; },
     listPhotos: async date => Object.entries(st.photos).filter(([,p])=>p.date===date).map(([id,p])=>({id,...p})).sort((a,b)=>a.at-b.at),
+    listPhotosRange: async (a,b) => Object.entries(st.photos).filter(([,p])=>p.date>=a&&p.date<=b).map(([id,p])=>({id,...p})),
     listPhotosBefore: async d => Object.entries(st.photos).filter(([,p])=>p.date<d).map(([id,p])=>({id,date:p.date})),
     addPhoto: async p => { const id='p'+Date.now()+Math.random().toString(36).slice(2,6); st.photos[id]=p; save(); return id; },
     delPhoto: async id => { delete st.photos[id]; save(); },
@@ -411,7 +413,7 @@ function shell(inner){
   $('#out')&&($('#out').onclick=()=>api.logout());
   $('#adm')&&($('#adm').onclick=()=>api.login().catch(e=>toast('Không đăng nhập được: '+(e.message||e),'bad')));
 }
-const APP_VER='2026-11-25g';
+const APP_VER='2026-11-25h';
 (async()=>{ try{ const t=await (await fetch(location.pathname+'?chk='+Date.now(),{cache:'no-store'})).text(); const v=(t.match(/APP_VER='([^']+)'/)||[])[1];
   if(v && v!==APP_VER && !S.dirty) location.replace(location.pathname+'?v='+v+location.hash); }catch(e){} })();
 function route(){
@@ -991,18 +993,26 @@ async function exportXlsx(){
   box(w1,5,T1,16); for(let r=5;r<=L1;r++) w1.getCell(r,16).alignment={wrapText:true,vertical:'top'};
   w1.getCell(T1+2,1).value='Quy ước: 1 người ca sáng hoặc ca chiều = 0,5 công; Giờ công TC = SL × (Đến − Từ); Công quy đổi = Công HC + Tổng giờ TC / 8 × '+HS()+' (hệ số tăng ca). Công KT đội: phần công nhật tick "Trừ tiền đội".'; w1.getCell(T1+2,1).font={italic:true,size:9};
 
+  // Ảnh công nhật (để QS đối chiếu): tải + thu nhỏ trước, đánh số dòng ở sheet "Anh cong nhat"
+  toast('Đang tải ảnh công nhật để đưa vào Excel…');
+  const caIdx=Object.fromEntries(CAS.map((c,i)=>[c.k,i]));
+  let photos=[]; try{ photos=(await api.listPhotosRange(S.sumFrom,S.sumTo)).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(caIdx[a.ca]-caIdx[b.ca])||(a.at-b.at)); }catch(e){ toast('Không tải được ảnh: '+(e.message||e),'warn'); }
+  const phRow={}; photos.forEach((p,i)=>{ const k=p.date+'|'+p.ca; if(!phRow[k]) phRow[k]={row:5+i,n:0}; phRow[k].n++; });
+  const shrink=src=>new Promise(res=>{ const im=new Image(); im.onload=()=>{ const k=Math.min(1,640/im.width), cv=document.createElement('canvas'); cv.width=Math.round(im.width*k); cv.height=Math.round(im.height*k); cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height); res({b64:cv.toDataURL('image/jpeg',0.72),w:cv.width,h:cv.height}); }; im.onerror=()=>res(null); im.src=src; });
+
   // Sheet 2: chi tiết  (C=Ca, D=GS, G=Đội, H=Khấu trừ, I=SL, L=Số giờ, M=Người×giờ, N=Công HC, O=Công QĐ)
   const w2=wb.addWorksheet('Chi tiet');
-  const c2=[['STT',6],['Ngày',12],['Ca',9],['Giám sát',22],['Công việc',32],['Vị trí',16],['Làm cho đội',20],['Khấu trừ',9],['SL',7],['Từ',8],['Đến',8],['Số giờ',8],['Người × giờ',11],['Công HC',9],['Công quy đổi',10],['Ghi chú ca',26]];
+  const c2=[['STT',6],['Ngày',12],['Ca',9],['Giám sát',22],['Công việc',32],['Vị trí',16],['Làm cho đội',20],['Khấu trừ',9],['SL',7],['Từ',8],['Đến',8],['Số giờ',8],['Người × giờ',11],['Công HC',9],['Công quy đổi',10],['Ghi chú ca',26],['Ảnh ca (bấm để xem)',16]];
   head(w2,'CHI TIẾT PHÂN CÔNG CÔNG NHẬT',sub,c2);
   let r2=5,n=0;
   days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ n++;
-    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?'Có':'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8*${HS()}`}:{formula:`N${r2}`},d.ca[c.k].note||''];
-    if(c.tc) for(let k=1;k<=16;k++) w2.getCell(r2,k).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDF3E1'}};
+    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?'Có':'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8*${HS()}`}:{formula:`N${r2}`},d.ca[c.k].note||'',(()=>{ const ph=phRow[d.date+'|'+c.k]; return ph?{text:`Xem ${ph.n} ảnh`,hyperlink:`#'Anh cong nhat'!A${ph.row}`}:'Không có ảnh'; })()];
+    { const ph=phRow[d.date+'|'+c.k]; w2.getCell(r2,17).font=ph?{color:{argb:'FF245CAD'},underline:true}:{color:{argb:'FFB3261E'},italic:true}; }
+    if(c.tc) for(let k=1;k<=17;k++) w2.getCell(r2,k).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDF3E1'}};
     if(x.kt) w2.getCell(r2,8).font={bold:true,color:{argb:'FFB3261E'}};
     r2++; })));
   w2.getRow(r2).values=['','TỔNG','','','','','','',{formula:`SUM(I5:I${r2-1})`},'','','',{formula:`SUM(M5:M${r2-1})`},{formula:`SUM(N5:N${r2-1})`},{formula:`SUM(O5:O${r2-1})`},''];
-  w2.getRow(r2).font={bold:true}; box(w2,5,r2,16); w2.autoFilter={from:{row:4,column:1},to:{row:4,column:16}};
+  w2.getRow(r2).font={bold:true}; box(w2,5,r2,17); w2.autoFilter={from:{row:4,column:1},to:{row:4,column:17}};
   const last2=r2-1, ref=`'Chi tiet'!`, rg=c=>`${ref}$${c}$5:$${c}$${last2}`;
 
   // Sheet 3: theo giám sát
@@ -1032,6 +1042,21 @@ async function exportXlsx(){
   const r4s=r4+1; det.forEach((o,i)=>{ r4++; w4.getRow(r4).values=[i+1,o.x.doi,vn(o.d.date),o.c.n,`${o.x.viec}${o.x.vitri?' – '+o.x.vitri:''} (GS ${o.x.gs})`,+o.x.sl||0,rowT(o.x,o.c).join('–'),Math.round(rowQD(o.x,o.c)*1000)/1000]; });
   if(det.length) box(w4,r4s,r4,8);
 
+  // Sheet 5: ảnh công nhật — mỗi ảnh 1 dòng, kèm việc trong ca để QS đối chiếu
+  const w5=wb.addWorksheet('Anh cong nhat',{pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}});
+  head(w5,'ẢNH CÔNG NHẬT (ĐỐI CHIẾU)',sub,[['STT',6],['Ngày',12],['Ca',9],['Giờ chụp',14],['Người chụp',18],['Phân công trong ca (GS · SL · việc · đội)',46],['Ảnh',52]]);
+  if(!photos.length){ w5.getCell(5,1).value='Không có ảnh nào trong khoảng ngày này (ảnh chỉ lưu '+(+S.settings.photoKeep||60)+' ngày gần nhất).'; w5.getCell(5,1).font={italic:true,color:{argb:'FFB3261E'}}; }
+  const dayMap=Object.fromEntries(days.map(d=>[d.date,d]));
+  for(let i=0;i<photos.length;i++){ const p=photos[i], r=5+i, c=CAS.find(x=>x.k===p.ca)||{n:p.ca};
+    if(i%10===0) toast(`Đang chèn ảnh ${i+1}/${photos.length}…`);
+    const rows=(dayMap[p.date]?.ca?.[p.ca]?.rows||[]).map(x=>`${x.gs} · ${x.sl} người · ${x.viec}${x.vitri?' – '+x.vitri:''}${x.doi?' · '+x.doi+(x.kt?' (trừ đội)':''):''}`).join('\n');
+    w5.getRow(r).values=[i+1,vn(p.date),c.n,p.takenAt?new Date(p.takenAt).toLocaleString('vi-VN',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'}):'',p.by||'',rows||'(chưa có phân công)',''];
+    w5.getRow(r).height=165; for(let k=1;k<=7;k++){ w5.getCell(r,k).alignment={vertical:'top',wrapText:true}; w5.getCell(r,k).border=B; }
+    const im=await shrink(p.data); if(!im) continue;
+    const id=wb.addImage({base64:im.b64,extension:'jpeg'}), H=210, W=Math.round(im.w*H/im.h);
+    w5.addImage(id,{tl:{col:6.05,row:r-1+0.03},ext:{width:Math.min(W,360),height:Math.min(W,360)===W?H:Math.round(360*im.h/im.w)},editAs:'oneCell'});
+  }
+
   const buf=await wb.xlsx.writeBuffer();
   const name=`HH12_CONG-NHAT_${S.sumFrom.replace(/-/g,'')}-${S.sumTo.replace(/-/g,'')}.xlsx`;
   const dl = window.claude?.use ? await window.claude.use('downloads').catch(()=>null) : null;
@@ -1056,7 +1081,7 @@ async function viewCaiDat(){
     ${CAS.map(c=>`<div class="row" style="margin-bottom:8px"><span style="width:80px;padding-bottom:10px;font-weight:600">${c.n}</span><label class="f" style="width:120px">Từ<input type="time" id="h1-${c.k}" value="${s.hours[c.k][0]}"></label><label class="f" style="width:120px">Đến<input type="time" id="h2-${c.k}" value="${s.hours[c.k][1]}"></label></div>`).join('')}
     <label class="f" style="margin-top:10px;max-width:260px">Đơn giá công nhật để tính khấu trừ (đ/công)<input type="number" id="dg" min="0" step="1000" value="${+s.donGia||0}"></label>
     <label class="f" style="margin-top:10px;max-width:260px">Hệ số tăng ca (TC trưa, TC tối)<input type="number" id="hstc" min="1" step="0.1" value="${+s.heSoTC||1.5}"></label>
-    <label class="f" style="margin-top:10px;max-width:260px">Giữ ảnh trong (ngày) — 1 = sang ngày mới tự xoá ảnh hôm trước<input type="number" id="pkeep" min="1" value="${+s.photoKeep||1}"></label>
+    <label class="f" style="margin-top:10px;max-width:260px">Giữ ảnh trong (ngày) — để QS đối chiếu khi xuất Excel, nên ≥ 45<input type="number" id="pkeep" min="1" value="${+s.photoKeep||60}"></label>
     <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="preq" style="width:20px;min-height:20px" ${s.photoRequired?'checked':''}> Bắt buộc có ảnh mỗi ca có người mới được chốt ngày</label>
     <div class="row" style="margin-top:14px"><button class="btn pri" id="saveS">Lưu cài đặt</button><span id="msg"></span></div></section>
   </div>
