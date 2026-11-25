@@ -231,7 +231,7 @@ const FIREBASE_CONFIG = {
   projectId: "cong-nhat-hh12",
   appId: "1:690556814078:web:77b952cdbc9f4c16bf9baf"
 };
-const ADMIN_EMAILS = ["hieukt1992@gmail.com"];   // quản trị gốc (khớp với firestore.rules)
+const ADMIN_EMAILS = ["hieukt1992@gmail.com","lebatan84@gmail.com"];   // quản trị gốc (khớp với firestore.rules)
 const PROJECT = "HH12 Cổ Loa";
 /* ================================== */
 
@@ -413,7 +413,7 @@ function shell(inner){
   $('#out')&&($('#out').onclick=()=>api.logout());
   $('#adm')&&($('#adm').onclick=()=>api.login().catch(e=>toast('Không đăng nhập được: '+(e.message||e),'bad')));
 }
-const APP_VER='2026-11-25i';
+const APP_VER='2026-11-25j';
 (async()=>{ try{ const t=await (await fetch(location.pathname+'?chk='+Date.now(),{cache:'no-store'})).text(); const v=(t.match(/APP_VER='([^']+)'/)||[])[1];
   if(v && v!==APP_VER && !S.dirty) location.replace(location.pathname+'?v='+v+location.hash); }catch(e){} })();
 function route(){
