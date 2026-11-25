@@ -275,8 +275,8 @@ async function initStore(){
     saveDay: (date,o) => F.setDoc(d('cn_days',date),o,{merge:true}),
     async listDays(a,b){ const q=await F.getDocs(F.query(F.collection(fs,'cn_days'),F.where('date','>=',a),F.where('date','<=',b))); return q.docs.map(x=>x.data()); },
     async listDaysBySt(st){ const q=await F.getDocs(F.query(F.collection(fs,'cn_days'),F.where('ktSt','==',st))); return q.docs.map(x=>x.data()); },
-    async getMine(email){ const s=await F.getDoc(d('cn_sigs',email)); return s.exists()?s.data():{}; },
-    saveMine: (email,o) => F.setDoc(d('cn_sigs',email),{...o,at:Date.now()},{merge:true}),
+    async getMine(email){ if(email.startsWith('khach:')) return localMine(); const s=await F.getDoc(d('cn_sigs',email)); return s.exists()?s.data():{}; },
+    saveMine: async (email,o) => { if(email.startsWith('khach:')) return saveLocalMine(o); return F.setDoc(d('cn_sigs',email),{...o,at:Date.now()},{merge:true}); },
     async listDaysGt(f){ const q=await F.getDocs(F.query(F.collection(fs,'cn_days'),F.where(f,'>',0))); return q.docs.map(x=>x.data()); },
     mergeDay: (date,fn) => F.runTransaction(fs, async tx => { const ref=d('cn_days',date); const sn=await tx.get(ref); const cur=sn.exists()?sn.data():null; const o=fn(cur); tx.set(ref,o,{merge:true}); return o; }),
     async listPhotos(date){ const q=await F.getDocs(F.query(F.collection(fs,'cn_photos'),F.where('date','==',date))); return q.docs.map(x=>({id:x.id,...x.data()})).sort((a,b)=>a.at-b.at); },
@@ -343,12 +343,13 @@ function shell(inner){
   <header><div class="hd">
     <div class="logo"><b>N</b>NEWTECONS · HH12</div>
     <nav>${TABS.filter(t=>t[2]()).map(t=>`<a href="#/${t[0]}" class="${cur===t[0]?'on':''}">${t[1]}${t[0]==='duyet'&&S.pendN?`<span class="cnt">${S.pendN}</span>`:''}</a>`).join('')}</nav>
-    <div class="who">${esc(S.user.name)} · ${esc(ROLES[S.role]||'')}<button id="out">Thoát</button></div>
+    <div class="who">${S.user.guest?`${esc(S.me?.gsName||'Khách')}<button id="adm">Quản trị</button>`:`${esc(S.user.name)} · ${esc(ROLES[S.role]||'')}<button id="out">Thoát</button>`}</div>
   </div></header>
   <main>${inner}</main>`;
-  $('#out').onclick=()=>api.logout();
+  $('#out')&&($('#out').onclick=()=>api.logout());
+  $('#adm')&&($('#adm').onclick=()=>api.login().catch(e=>toast('Không đăng nhập được: '+(e.message||e),'bad')));
 }
-const APP_VER='2026-11-25e';
+const APP_VER='2026-11-25f';
 (async()=>{ try{ const t=await (await fetch(location.pathname+'?chk='+Date.now(),{cache:'no-store'})).text(); const v=(t.match(/APP_VER='([^']+)'/)||[])[1];
   if(v && v!==APP_VER && !S.dirty) location.replace(location.pathname+'?v='+v+location.hash); }catch(e){} })();
 function route(){
@@ -421,7 +422,7 @@ function caCard(c,idx){
     ${ro?'':`<button class="btn addrow" data-add="${c.k}">+ Thêm việc</button>`}
     <div class="sec">2. Ảnh công nhật ${phs.length?`<span class="badge ok">${phs.length} ảnh</span>`:(sm.sl?'<span class="badge warn">Chưa có ảnh</span>':'')}</div>
     ${ro?'':`<label class="btn blue shoot">Chụp ảnh ca ${c.n}<input type="file" accept="image/*" capture="environment" multiple data-up="${c.k}"></label>`}
-    ${phs.length?`<div class="photos">${phs.map(p=>`<div class="ph"><img src="${p.data}" data-zoom alt="Ảnh ${c.n}">${p.takenDate&&p.takenDate!==S.date?'<span class="w">Ảnh ngày '+vn(p.takenDate).slice(0,5)+'</span>':''}${ro?'':`<button data-delph="${p.id}" aria-label="Xoá ảnh">×</button>`}</div>`).join('')}</div>`:''}
+    ${phs.length?`<div class="photos">${phs.map(p=>`<div class="ph"><img src="${p.data}" data-zoom alt="Ảnh ${c.n}">${p.takenDate&&p.takenDate!==S.date?'<span class="w">Ảnh ngày '+vn(p.takenDate).slice(0,5)+'</span>':''}${ro||!(can.admin()||p.byId===S.user.email)?'':`<button data-delph="${p.id}" aria-label="Xoá ảnh">×</button>`}</div>`).join('')}</div>`:''}
   </section>`;
 }
 function caSumHtml(c,sm){
@@ -584,7 +585,7 @@ async function pickGsName(cur){
       <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn" data-x>Huỷ</button><button class="btn ok" data-ok>Lưu</button></div>`);
     m.querySelector('[data-x]').onclick=()=>{ m.remove(); res(''); };
     m.querySelector('[data-ok]').onclick=async()=>{ let n=m.querySelector('#gsn').value; if(n==='__khac') n=(prompt('Họ tên giám sát:')||'').trim(); if(!n) return;
-      try{ await api.saveMine(S.user.email,{gsName:n}); }catch(e){} S.me={...(S.me||{}),gsName:n}; m.remove(); res(n); };
+      try{ await api.saveMine(S.user.email,{gsName:n}); }catch(e){} S.me={...(S.me||{}),gsName:n}; if(S.user.guest) S.user.name=n; m.remove(); res(n); };
   });
 }
 async function myGsName(){ return S.me?.gsName || await pickGsName(''); }
@@ -775,7 +776,7 @@ async function upload(input){
       const t=new Date(f.lastModified||Date.now()), td=ymd(t);
       const label=`HH12 · Công nhật ${c.n} · ${pad(t.getDate())}/${pad(t.getMonth()+1)}/${t.getFullYear()} ${pad(t.getHours())}:${pad(t.getMinutes())} · ${S.user.name}`;
       const data=await compress(f,label);
-      const p={date:S.date,ca:k,data,by:S.user.name,at:Date.now(),takenAt:t.getTime(),takenDate:td};
+      const p={date:S.date,ca:k,data,by:S.user.name,byId:S.user.email,at:Date.now(),takenAt:t.getTime(),takenDate:td};
       p.id=await api.addPhoto(p); S.photos.push(p);
     }
     await syncPhotoCount(k); rerenderCa(k); toast('Đã tải ảnh lên','ok');
@@ -783,7 +784,7 @@ async function upload(input){
 }
 /* tự xoá ảnh của các ngày trước — giữ S.settings.photoKeep ngày (1 = chỉ giữ hôm nay) */
 async function cleanPhotos(){
-  if(!can.write()) return;
+  if(!can.admin()) return;
   const keep=Math.max(1,+S.settings.photoKeep||1), cutoff=addDays(today(),-(keep-1));
   try{ const keepD=new Set([...(await api.listDaysBySt('cho_duyet')),...(await api.listDaysGt('pendN')),...(await api.listDaysGt('tlN'))].map(x=>x.date));
     const old=await api.listPhotosBefore(cutoff); for(const p of old) if(!keepD.has(p.date)) await api.delPhoto(p.id); }catch(e){ console.warn('cleanPhotos',e); }
@@ -1020,6 +1021,10 @@ async function viewCaiDat(){
 }
 
 /* ============ KHỞI ĐỘNG ============ */
+/* ===== khách (không đăng nhập) — giống web thiết bị ===== */
+function devId(){ let v=''; try{ v=localStorage.getItem('cn_dev')||''; if(!v){ v=Math.random().toString(36).slice(2,10)+Date.now().toString(36); localStorage.setItem('cn_dev',v); } }catch(e){ v=v||'tam'+Date.now().toString(36); } return v; }
+function localMine(){ try{ return JSON.parse(localStorage.getItem('cn_mine')||'{}'); }catch(e){ return {}; } }
+function saveLocalMine(o){ try{ localStorage.setItem('cn_mine',JSON.stringify({...localMine(),...o})); }catch(e){} }
 function loginView(msg=''){
   $('#app').innerHTML=`<header><div class="hd"><div class="logo"><b>N</b>NEWTECONS · HH12</div></div></header>
   <main><div class="center"><div class="card" style="max-width:420px">
@@ -1032,7 +1037,14 @@ function loginView(msg=''){
 async function boot(){
   try{ await initStore(); }catch(e){ $('#app').innerHTML=`<div class="center"><div class="err">Không tải được Firebase: ${esc(e.message||e)}</div></div>`; return; }
   api.onUser(async u=>{
-    if(!u){ S.user=null; loginView(); return; }
+    if(!u){ // không đăng nhập: vào thẳng với quyền khai báo
+      try{
+        S.user={email:'khach:'+devId(),name:'Khách',guest:true}; S.role='khaibao';
+        const st=await api.getSettings(); S.settings=Object.assign({},DEF_SETTINGS,st||{}); S.settings.hours=Object.assign({},DEF_SETTINGS.hours,st?.hours||{});
+        S.me=localMine(); if(S.me.gsName) S.user.name=S.me.gsName;
+        S.loadedOn=today(); await loadDay(today()); route();
+      }catch(e){ loginView('Lỗi tải dữ liệu: '+esc(e.message||e)); }
+      return; }
     try{
       let role=ADMIN_EMAILS.includes(u.email)?'admin':null, name=u.name;
       if(!role){ const rec=await api.getUser(u.email); if(rec){ role=rec.role; name=rec.name||name; } }
