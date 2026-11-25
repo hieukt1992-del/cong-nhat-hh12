@@ -413,7 +413,7 @@ function shell(inner){
   $('#out')&&($('#out').onclick=()=>api.logout());
   $('#adm')&&($('#adm').onclick=()=>api.login().catch(e=>toast('Không đăng nhập được: '+(e.message||e),'bad')));
 }
-const APP_VER='2026-11-25j';
+const APP_VER='2026-11-25k';
 (async()=>{ try{ const t=await (await fetch(location.pathname+'?chk='+Date.now(),{cache:'no-store'})).text(); const v=(t.match(/APP_VER='([^']+)'/)||[])[1];
   if(v && v!==APP_VER && !S.dirty) location.replace(location.pathname+'?v='+v+location.hash); }catch(e){} })();
 function route(){
@@ -968,7 +968,8 @@ function renderSum(){
 async function exportXlsx(){
   if(!window.ExcelJS){ toast('Chưa tải được thư viện Excel — kiểm tra mạng.','bad'); return; }
   const days=S.sumDays||[]; if(!days.length){ toast('Không có dữ liệu để xuất.','warn'); return; }
-  const wb=new ExcelJS.Workbook(); wb.creator='Công nhật HH12';
+  const wb=new ExcelJS.Workbook(); wb.creator='Công nhật HH12'; wb.calcProperties.fullCalcOnLoad=true;
+  const R3=v=>Math.round((+v||0)*1000)/1000, fr=(f,v)=>({formula:f,result:R3(v)});   // có sẵn kết quả: mở file ở chế độ chỉ xem vẫn thấy số
   const NAVY='FF0B2545', thin={style:'thin',color:{argb:'FF9AA9C0'}}, B={top:thin,left:thin,bottom:thin,right:thin};
   const head=(ws,title,sub,cols)=>{
     ws.mergeCells(1,1,1,cols.length); ws.getCell(1,1).value=title; ws.getCell(1,1).font={bold:true,size:14,color:{argb:NAVY}};
@@ -984,7 +985,7 @@ async function exportXlsx(){
   const c1=[['STT',6],['Ngày',12],['Thứ',6],['SL sáng',9],['SL chiều',9],['Công HC',10],['SL TC trưa',9],['Giờ công TC trưa',11],['SL TC tối',9],['Giờ công TC tối',11],['Tổng giờ TC',11],['Công quy đổi',11],['Công KT đội',12],['Số ảnh',8],['Trạng thái',24],['Ghi chú',36]];
   head(w1,'BẢNG TỔNG HỢP CÔNG NHẬT HẰNG NGÀY',sub,c1);
   days.forEach((d,i)=>{ const s=daySum(d), r=5+i;
-    w1.getRow(r).values=[i+1,vn(d.date),thu(d.date),s.sang,s.chieu,{formula:`(D${r}+E${r})/2`},s.tcTruaSL,s.tcTruaGio,s.tcToiSL,s.tcToiGio,{formula:`H${r}+J${r}`},{formula:`F${r}+K${r}/8*${HS()}`},Math.round(ktSplit(normRows(d)).ok*1000)/1000,s.anh,stText(d),d.note||''];
+    w1.getRow(r).values=[i+1,vn(d.date),thu(d.date),s.sang,s.chieu,fr(`(D${r}+E${r})/2`,s.congHC),s.tcTruaSL,s.tcTruaGio,s.tcToiSL,s.tcToiGio,fr(`H${r}+J${r}`,s.gioTC),fr(`F${r}+K${r}/8*${HS()}`,s.congQD),Math.round(ktSplit(normRows(d)).ok*1000)/1000,s.anh,stText(d),d.note||''];
     if(dayCounts(d).duyet<dayCounts(d).n) w1.getCell(r,15).font={color:{argb:'FFB7791F'},bold:true};
   });
   const L1=4+days.length, T1=L1+1;
@@ -1006,7 +1007,7 @@ async function exportXlsx(){
   head(w2,'CHI TIẾT PHÂN CÔNG CÔNG NHẬT',sub,c2);
   let r2=5,n=0;
   days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ n++;
-    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?'Có':'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8*${HS()}`}:{formula:`N${r2}`},d.ca[c.k].note||'',(()=>{ const ph=phRow[d.date+'|'+c.k]; return ph?{text:`Xem ${ph.n} ảnh`,hyperlink:`#'Anh cong nhat'!A${ph.row}`}:'Không có ảnh'; })()];
+    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?'Có':'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),fr(`I${r2}*L${r2}`,(+x.sl||0)*hrs(...rowT(x,c))),c.tc?'':fr(`I${r2}*0.5`,(+x.sl||0)/2),c.tc?fr(`M${r2}/8*${HS()}`,rowQD(x,c)):fr(`N${r2}`,rowQD(x,c)),d.ca[c.k].note||'',(()=>{ const ph=phRow[d.date+'|'+c.k]; return ph?{text:`Xem ${ph.n} ảnh`,hyperlink:`#'Anh cong nhat'!A${ph.row}`}:'Không có ảnh'; })()];
     { const ph=phRow[d.date+'|'+c.k]; w2.getCell(r2,17).font=ph?{color:{argb:'FF245CAD'},underline:true}:{color:{argb:'FFB3261E'},italic:true}; }
     if(c.tc) for(let k=1;k<=17;k++) w2.getCell(r2,k).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDF3E1'}};
     if(x.kt) w2.getCell(r2,8).font={bold:true,color:{argb:'FFB3261E'}};
@@ -1020,27 +1021,46 @@ async function exportXlsx(){
   const c3=[['STT',6],['Giám sát',26],['Lượt người sáng+chiều',13],['Công HC',10],['Giờ công TC',11],['Công quy đổi',11],['Trong đó KT đội',12]];
   head(w3,'TỔNG HỢP CÔNG NHẬT THEO GIÁM SÁT',sub,c3);
   const gsNames=[...new Set(days.flatMap(d=>CAS.flatMap(c=>(d.ca?.[c.k]?.rows||[]).map(x=>x.gs))))];
-  gsNames.forEach((g,i)=>{ const r=5+i;
-    w3.getRow(r).values=[i+1,g,{formula:`SUMPRODUCT((${rg('D')}=B${r})*((${rg('C')}="Sáng")+(${rg('C')}="Chiều"))*${rg('I')})`},{formula:`SUMIFS(${rg('N')},${rg('D')},B${r})`},{formula:`SUMPRODUCT((${rg('D')}=B${r})*((${rg('C')}="TC trưa")+(${rg('C')}="TC tối"))*${rg('M')})`},{formula:`D${r}+E${r}/8*${HS()}`},{formula:`SUMIFS(${rg('O')},${rg('D')},B${r},${rg('H')},"Có")`}]; });
-  const T3=5+gsNames.length; w3.getRow(T3).values=['','TỔNG',...'CDEFG'.split('').map(c=>({formula:`SUM(${c}5:${c}${T3-1})`}))]; w3.getRow(T3).font={bold:true};
+  const g3={}; days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ const o=g3[x.gs]||(g3[x.gs]={C:0,D:0,E:0,F:0,G:0}); const q=rowQD(x,c);
+    if(c.tc) o.E+=(+x.sl||0)*hrs(...rowT(x,c)); else { o.C+=+x.sl||0; o.D+=(+x.sl||0)/2; } o.F+=q; if(x.kt) o.G+=q; })));
+  gsNames.forEach((g,i)=>{ const r=5+i, o=g3[g]||{};
+    w3.getRow(r).values=[i+1,g,fr(`SUMPRODUCT((${rg('D')}=B${r})*((${rg('C')}="Sáng")+(${rg('C')}="Chiều"))*${rg('I')})`,o.C),fr(`SUMIFS(${rg('N')},${rg('D')},B${r})`,o.D),fr(`SUMPRODUCT((${rg('D')}=B${r})*((${rg('C')}="TC trưa")+(${rg('C')}="TC tối"))*${rg('M')})`,o.E),fr(`D${r}+E${r}/8*${HS()}`,o.F),fr(`SUMIFS(${rg('O')},${rg('D')},B${r},${rg('H')},"Có")`,o.G)]; });
+  const T3=5+gsNames.length; w3.getRow(T3).values=['','TỔNG',...'CDEFG'.split('').map(c=>fr(`SUM(${c}5:${c}${T3-1})`,Object.values(g3).reduce((n,o)=>n+(o[c]||0),0)))]; w3.getRow(T3).font={bold:true};
   box(w3,5,T3,7);
 
-  // Sheet 4: khấu trừ theo đội
+  // Sheet 4: khấu trừ theo đội — có sẵn số tiền
   const w4=wb.addWorksheet('Khau tru doi');
-  const c4=[['STT',6],['Đội thi công',28],['Lượt người ca chính',13],['Công HC',10],['Giờ công TC',11],['Công quy đổi',11],['Đơn giá (đ/công)',14],['Thành tiền (đ)',16]];
+  const dg=+S.settings.donGia||0;
+  const c4=[['STT',6],['Đội thi công',28],['Lượt người ca chính',13],['Công HC',10],['Giờ công TC',11],['Công quy đổi',11],['Đơn giá (đ/công)',14],['Tiền khấu trừ (đ)',18]];
   head(w4,'TỔNG HỢP CÔNG NHẬT KHẤU TRỪ ĐỘI THI CÔNG',sub,c4);
-  const doiKT=[...ktByDoi(days).keys()];
-  doiKT.forEach((g,i)=>{ const r=5+i;
-    w4.getRow(r).values=[i+1,g,{formula:`SUMPRODUCT((${rg('G')}=B${r})*(${rg('H')}="Có")*((${rg('C')}="Sáng")+(${rg('C')}="Chiều"))*${rg('I')})`},{formula:`SUMIFS(${rg('N')},${rg('G')},B${r},${rg('H')},"Có")`},{formula:`SUMPRODUCT((${rg('G')}=B${r})*(${rg('H')}="Có")*((${rg('C')}="TC trưa")+(${rg('C')}="TC tối"))*${rg('M')})`},{formula:`D${r}+E${r}/8*${HS()}`},+S.settings.donGia||0,{formula:`ROUND(F${r}*G${r},0)`}]; });
-  const T4=5+doiKT.length; w4.getRow(T4).values=['','TỔNG',...'CDEF'.split('').map(c=>({formula:`SUM(${c}5:${c}${T4-1})`})),'',{formula:`SUM(H5:H${T4-1})`}]; w4.getRow(T4).font={bold:true};
-  box(w4,5,T4,8); for(let r=5;r<=T4;r++){ w4.getCell(r,7).numFmt='#,##0'; w4.getCell(r,8).numFmt='#,##0'; }
-  // chi tiết từng lượt khấu trừ, gom theo đội — để gửi đội đối chiếu
+  const kt=ktByDoi(days), doiKT=[...kt.keys()], tot4={C:0,D:0,E:0,F:0,H:0};
+  doiKT.forEach((g,i)=>{ const r=5+i, o=kt.get(g), qd=o.hc+o.tc/8*HS(), tien=Math.round(qd*dg);
+    tot4.C+=o.luot; tot4.D+=o.hc; tot4.E+=o.tc; tot4.F+=qd; tot4.H+=tien;
+    w4.getRow(r).values=[i+1,g,
+      fr(`SUMPRODUCT((${rg('G')}=B${r})*(${rg('H')}="Có")*((${rg('C')}="Sáng")+(${rg('C')}="Chiều"))*${rg('I')})`,o.luot),
+      fr(`SUMIFS(${rg('N')},${rg('G')},B${r},${rg('H')},"Có")`,o.hc),
+      fr(`SUMPRODUCT((${rg('G')}=B${r})*(${rg('H')}="Có")*((${rg('C')}="TC trưa")+(${rg('C')}="TC tối"))*${rg('M')})`,o.tc),
+      fr(`D${r}+E${r}/8*${HS()}`,qd), dg, {formula:`ROUND(F${r}*G${r},0)`,result:tien}]; });
+  const T4=5+doiKT.length;
+  w4.getRow(T4).values=['','TỔNG',...'CDEF'.split('').map(c=>fr(`SUM(${c}5:${c}${T4-1})`,tot4[c])),'',{formula:`SUM(H5:H${T4-1})`,result:tot4.H}];
+  w4.getRow(T4).font={bold:true}; for(let c=1;c<=8;c++) w4.getCell(T4,c).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8F0FB'}};
+  box(w4,5,T4,8); for(let r=5;r<=T4;r++){ w4.getCell(r,7).numFmt='#,##0'; w4.getCell(r,8).numFmt='#,##0'; w4.getCell(r,8).font={bold:true,color:{argb:'FFB3261E'}}; }
+  // chi tiết từng lượt khấu trừ, gom theo đội — có đơn giá + tiền khấu trừ từng lượt, cộng theo đội
   let r4=T4+3; w4.getCell(r4-1,1).value='CHI TIẾT CÁC LƯỢT KHẤU TRỪ'; w4.getCell(r4-1,1).font={bold:true,color:{argb:NAVY}};
-  ['STT','Đội thi công','Ngày','Ca','Công việc – vị trí','SL','Giờ','Công quy đổi'].forEach((h,i)=>{ const x=w4.getCell(r4,i+1); x.value=h; x.font={bold:true,color:{argb:'FFFFFFFF'}}; x.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; x.border=B; });
+  ['STT','Đội thi công','Ngày','Ca','Công việc – vị trí','SL','Giờ','Công quy đổi','Đơn giá (đ/công)','Tiền khấu trừ (đ)'].forEach((h,i)=>{ const x=w4.getCell(r4,i+1); x.value=h; x.font={bold:true,color:{argb:'FFFFFFFF'}}; x.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; x.alignment={horizontal:'center',vertical:'middle',wrapText:true}; x.border=B; });
+  w4.getRow(r4).height=30; w4.getColumn(9).width=14; w4.getColumn(10).width=18; w4.getColumn(5).width=Math.max(w4.getColumn(5).width||0,40);
   const det=[]; days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ if(x.kt&&rowOK(d,x)) det.push({d,c,x}); })));
   det.sort((a,b)=>(a.x.doi||'').localeCompare(b.x.doi||'','vi')||(a.d.date<b.d.date?-1:a.d.date>b.d.date?1:0));
-  const r4s=r4+1; det.forEach((o,i)=>{ r4++; w4.getRow(r4).values=[i+1,o.x.doi,vn(o.d.date),o.c.n,`${o.x.viec}${o.x.vitri?' – '+o.x.vitri:''} (GS ${o.x.gs})`,+o.x.sl||0,rowT(o.x,o.c).join('–'),Math.round(rowQD(o.x,o.c)*1000)/1000]; });
-  if(det.length) box(w4,r4s,r4,8);
+  const r4s=r4+1; let grpStart=r4s, sumRows=[], n4=0;
+  const subTot=(doi,from,to)=>{ r4++; const q=det.filter(o=>o.x.doi===doi).reduce((n,o)=>n+rowQD(o.x,o.c),0);
+    w4.getRow(r4).values=['',`Cộng ${doi}`,'','','','','',fr(`SUM(H${from}:H${to})`,q),'',{formula:`SUM(J${from}:J${to})`,result:Math.round(q*dg)}];
+    w4.getRow(r4).font={bold:true}; for(let c=1;c<=10;c++) w4.getCell(r4,c).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8F0FB'}}; sumRows.push(r4); };
+  det.forEach((o,i)=>{ r4++; n4++; const q=R3(rowQD(o.x,o.c));
+    w4.getRow(r4).values=[n4,o.x.doi,vn(o.d.date),o.c.n,`${o.x.viec}${o.x.vitri?' – '+o.x.vitri:''} (GS ${o.x.gs})`,+o.x.sl||0,rowT(o.x,o.c).join('–'),q,dg,{formula:`ROUND(H${r4}*I${r4},0)`,result:Math.round(q*dg)}];
+    if(!det[i+1]||det[i+1].x.doi!==o.x.doi){ subTot(o.x.doi,grpStart,r4); grpStart=r4+1; } });
+  if(det.length){ r4++; w4.getRow(r4).values=['','TỔNG KHẤU TRỪ','','','','','',fr(sumRows.map(r=>`H${r}`).join('+'),tot4.F),'',{formula:sumRows.map(r=>`J${r}`).join('+'),result:tot4.H}];
+    w4.getRow(r4).font={bold:true,color:{argb:'FFB3261E'}}; for(let c=1;c<=10;c++) w4.getCell(r4,c).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDEBEA'}};
+    box(w4,r4s,r4,10); for(let r=r4s;r<=r4;r++){ w4.getCell(r,9).numFmt='#,##0'; w4.getCell(r,10).numFmt='#,##0'; } }
 
   // Sheet 5: ảnh công nhật — mỗi ảnh 1 dòng, kèm việc trong ca để QS đối chiếu
   const w5=wb.addWorksheet('Anh cong nhat',{pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}});
