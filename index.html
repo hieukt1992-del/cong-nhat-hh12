@@ -346,6 +346,9 @@ function shell(inner){
   <main>${inner}</main>`;
   $('#out').onclick=()=>api.logout();
 }
+const APP_VER='2026-11-25c';
+(async()=>{ try{ const t=await (await fetch(location.pathname+'?chk='+Date.now(),{cache:'no-store'})).text(); const v=(t.match(/APP_VER='([^']+)'/)||[])[1];
+  if(v && v!==APP_VER && !S.dirty) location.replace(location.pathname+'?v='+v+location.hash); }catch(e){} })();
 function route(){
   if(!S.user) return;
   if(S.loadedOn && S.loadedOn!==today() && !S.dirty){ S.loadedOn=today(); loadDay(today()).then(route); return; }
@@ -387,14 +390,6 @@ function gsOptions(sel){
 function doiOptions(sel){
   const list=[...S.settings.doi]; if(sel&&!list.includes(sel)) list.push(sel);
   return `<option value="">— BCH / chung —</option>`+list.map(n=>`<option ${n===sel?'selected':''}>${esc(n)}</option>`).join('')+`<option value="__khac">Khác (nhập tên)…</option>`;
-}
-function rowFoot(r){
-  const st=rowSt(S.day,r), dy=S.day.duyet?.[r.id];
-  const ky=r.ky?`<span>✓ <b>${esc(r.ky.name)}</b> đã ký ${fdt(r.ky.at)}</span><img src="${sigSrc(S.day,r.ky)}" alt="Chữ ký ${esc(r.ky.name)}">`:'';
-  if(st==='duyet') return `${ky}<span class="badge ok">Đã duyệt${dy?' · '+esc(dy.name)+' '+fdt(dy.at):''}</span>`;
-  if(st==='ky') return `${ky}<span class="badge warn">Chờ duyệt</span>${canUnsignRow(r)?'<button class="btn sm" data-unky>Huỷ ký để sửa</button>':''}`;
-  return `${r.tl?`<span class="badge bad">Bị trả lại</span><span style="color:var(--bad)">${esc(r.tl.by)}: ${esc(r.tl.lyDo)}</span>`:'<span class="muted">Chưa ký</span>'}
-    ${canSignRow(r)?'<button class="btn ok sm" data-kyrow>Ký xác nhận dòng này</button>':''}`;
 }
 function rowHtml(k,i,r,roAll){
   const ro=roAll||!canEditRow(r), dis=ro?'disabled':'', tc=CAS.find(c=>c.k===k).tc, st=rowSt(S.day,r);
@@ -505,7 +500,6 @@ function viewKhaiBao(){
       const last=[...rows].reverse().find(r=>r.by===S.user.email);
       rows.push({id:newId(),by:S.user.email,gs:me,viec:'',vitri:last?.vitri||'',doi:'',kt:false,sl:'',tu:h[0],den:h[1]}); dirty(); rerenderCa(k); }
     else if(b.hasAttribute('data-del')){ const r=b.closest('.r'), row=S.day.ca[r.dataset.ca].rows[+r.dataset.i]; if(!canEditRow(row)) return; S.del.add(row.id); S.day.ca[r.dataset.ca].rows.splice(+r.dataset.i,1); dirty(); rerenderCa(r.dataset.ca); }
-    else if(b.hasAttribute('data-kyrow')){ const r=b.closest('.r'); signRow(r.dataset.ca,+r.dataset.i); }
     else if(b.hasAttribute('data-unky')){ const r=b.closest('.r'), row=S.day.ca[r.dataset.ca].rows[+r.dataset.i]; if(!confirm('Huỷ chữ ký dòng này để sửa? Sửa xong phải ký lại.')) return; row.ky=null; await saveDay(true); }
     else if(b.dataset.delph){ if(!confirm('Xoá ảnh này?')) return; const p=S.photos.find(x=>x.id===b.dataset.delph); await api.delPhoto(p.id); S.photos=S.photos.filter(x=>x!==p); await syncPhotoCount(p.ca); rerenderCa(p.ca); }
     else if(b.hasAttribute('data-zoom')) zoom(b.src);
