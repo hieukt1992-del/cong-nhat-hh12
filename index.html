@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0b2545">
+<meta name="theme-color" content="#886D49">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Công nhật HH12">
 <title>Công nhật HH12 | Khai báo hằng ngày</title>
@@ -154,6 +154,68 @@ nav a .cnt{background:var(--red);color:#fff;border-radius:99px;padding:0 6px;fon
  nav a{padding:6px 8px;font-size:12px;white-space:nowrap}
  .who{margin-left:auto}
 }
+
+/* ===== Giao diện nâu – kem theo mẫu lequang-family.web.app ===== */
+:root{--navy:#472D0A;--gold:#886D49;--gold2:#7A603F;--blue:#886D49;--blue2:#F4EFE7;--ink:#472D0A;--muted:#7A6A55;--line:#E6DED2;--bg:#FCFCF9;--card:#fff;
+  --ok:#2E7D32;--ok2:#E8F5E9;--warn:#8A6D00;--warn2:#FFF8E1;--bad:#C62828;--bad2:#FDECEA;--red:#C62828}
+html,body{background:var(--bg);color:var(--ink);font:15px/1.45 "Times New Roman",Georgia,serif}
+header{background:var(--gold)}
+.hd{max-width:1280px}
+.logo{font-size:17px;letter-spacing:.05em}
+.logo b{background:#fff;color:var(--gold);border-radius:4px}
+nav a{color:#fff;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;border:1px solid rgba(255,255,255,.9);border-radius:6px;padding:6px 11px;min-height:34px;display:flex;align-items:center}
+nav a:hover{background:rgba(255,255,255,.15)}
+nav a.on{background:#fff;color:var(--ink);font-weight:700}
+nav a .cnt{background:var(--bad)}
+.who{color:#fff}.who button{background:none;border:1px solid #fff;color:#fff;font-weight:400;border-radius:6px}
+.who button:hover{background:rgba(255,255,255,.15)}
+main{max-width:1280px}
+.eyebrow{color:#fff;opacity:.85;letter-spacing:3px;font-weight:400;font-size:12px}
+.eyebrow+h1{margin-top:0!important}
+.eyebrow,.eyebrow+h1{background:linear-gradient(90deg,#472D0A,#886D49);color:#fff;padding:0 24px;margin-left:0;margin-right:0}
+.eyebrow{padding-top:18px;margin-bottom:0}
+.eyebrow+h1{padding-bottom:18px;margin-bottom:16px;font-size:28px;letter-spacing:1px;text-transform:uppercase;font-weight:700}
+h1{color:var(--ink)}
+h2{letter-spacing:.02em}
+.card{border-radius:0;border:1px solid var(--line);border-top:4px solid var(--gold)}
+.stat{border-radius:0;border:1px solid var(--line);border-top:4px solid var(--gold)}
+.stat .v{color:var(--ink)}
+.btn{border-radius:6px;font-weight:700;border-color:var(--line);background:var(--blue2);color:var(--ink)}
+.btn.pri{background:var(--ink);border-color:var(--ink);color:#fff}
+.btn.blue{background:var(--gold);border-color:var(--gold);color:#fff}
+.btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.ghost{background:transparent}
+input,select,textarea{border:1px solid #D8CCBB;border-radius:4px;background:#FFFDF7;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--gold)}
+label.f,.r label{color:#5C4A33}
+.badge{background:#EEE7DC;color:#6B5A44;font-family:Arial,sans-serif}
+.badge.ok{background:var(--ok);color:#fff}.badge.warn{background:#F2C200;color:#3A2A00}.badge.bad{background:var(--bad);color:#fff}
+.r{border-radius:0;background:#fff}
+.r.kt{background:#FFF8E1;border-color:#F3D88A}
+.r .h,.sec,.step .sn,.sumline b,.ptitle{color:var(--ink)}
+.num{background:var(--gold);border-radius:4px}
+.steps .step{border-radius:0;border-top:4px solid var(--line)}
+.step.on{border:1px solid var(--gold);border-top:4px solid var(--gold);background:#FBF5EA}
+.step .ss{color:var(--gold)}
+.step.lock{background:#F4EFE7}
+.today{background:var(--ink);border-radius:0}
+.sumline{border-radius:0}
+.tw{border-radius:0}
+th{background:var(--gold);color:#fff;font-weight:700;border-color:rgba(255,255,255,.35)}
+td{border-color:var(--line)}
+tr.tot td{background:#E9DFD0}
+.pt thead th{background:var(--gold)}
+.pt th,.pt td{border-color:#C9B89E}
+.pt tr.grp td{background:#E9DFD0;color:var(--ink)}
+.addrow{color:var(--gold);border-color:#C9B89E}
+.up{border-color:#C9B89E;color:var(--gold);background:#FFFDF7}
+.ph{border-radius:0;background:#F4EFE7}
+.bar{background:#FFFDF7;border-top:2px solid var(--gold)}
+.err{border:1px solid #F3B3B3;border-radius:0}
+.demo{background:#FFF8E1;color:#8A6D00}
+.modal>div{border-radius:6px;border-top:4px solid var(--gold)}
+.gal figure{border-radius:0}
+@media(max-width:640px){.eyebrow,.eyebrow+h1{padding-left:14px;padding-right:14px}.eyebrow+h1{font-size:22px}}
 </style>
 </head>
 <body>
@@ -349,7 +411,7 @@ function shell(inner){
   $('#out')&&($('#out').onclick=()=>api.logout());
   $('#adm')&&($('#adm').onclick=()=>api.login().catch(e=>toast('Không đăng nhập được: '+(e.message||e),'bad')));
 }
-const APP_VER='2026-11-25f';
+const APP_VER='2026-11-25g';
 (async()=>{ try{ const t=await (await fetch(location.pathname+'?chk='+Date.now(),{cache:'no-store'})).text(); const v=(t.match(/APP_VER='([^']+)'/)||[])[1];
   if(v && v!==APP_VER && !S.dirty) location.replace(location.pathname+'?v='+v+location.hash); }catch(e){} })();
 function route(){
