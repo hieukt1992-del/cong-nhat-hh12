@@ -211,7 +211,7 @@ const DEF_SETTINGS = {
   viec:['Dọn vệ sinh sàn','Vận chuyển thiết bị','Bốc xếp vật tư','Phân loại, xếp thiết bị','Hỗ trợ tổ cốp pha','Hỗ trợ hoàn thiện'],
   // Danh sách đội thi công — đồng bộ với web thiết bị HH12 (phieu-hh12)
   doi:['An Bình (hoàn thiện)','An Phát','BCH','DPCONS','Đỗ Đình Tán','ĐTC Khoa','ĐTC Liên Copha','ĐTC Trường','ĐTC Xây Lắp Copha','Đức Hiểu','Gia Phạm','Hải Đăng','Hòa Thùy','Hoàng Văn Tiến','Lê Văn Thuật','Minh Sơn','Nguyễn Đức Kiên','Nhật Minh (hoàn thiện)','NTP Bảo Hưng','NTP Gia Phong','NTP Neo','NTP Quang Thái','NTP Trung Hải','Tổ Thép Lương','Tuấn Anh','UTCONTS'],
-  donGia:400000,
+  donGia:400000, heSoTC:1.5,
   photoKeep:1,
   photoRequired:true
 };
@@ -241,14 +241,15 @@ function caSum(day,k){
 }
 /* giờ của 1 dòng: ca Sáng/Chiều luôn theo giờ ca trong Cài đặt; tăng ca theo giờ nhập */
 const rowT = (r,c) => c.tc ? [r.tu||'',r.den||''] : (S.settings?.hours?.[c.k] || [r.tu,r.den]);
-/* công quy đổi của 1 dòng: ca chính 0,5 công/người; tăng ca = người×giờ/8 */
-const rowQD = (r,c) => c.tc ? (+r.sl||0)*hrs(r.tu,r.den)/8 : (+r.sl||0)/2;
+/* công quy đổi của 1 dòng: ca chính 0,5 công/người; tăng ca = người×giờ/8 × hệ số tăng ca (mặc định 1,5) */
+const HS = () => +(S.settings?.heSoTC) || 1.5;
+const rowQD = (r,c) => c.tc ? (+r.sl||0)*hrs(r.tu,r.den)/8*HS() : (+r.sl||0)/2;
 function daySum(day){
   const s=caSum(day,'sang'),t=caSum(day,'tc_trua'),c=caSum(day,'chieu'),o=caSum(day,'tc_toi');
   const congHC=(s.sl+c.sl)/2, gioTC=t.gc+o.gc;
   const ph=day?.photos||{}; const anh=(ph.sang||0)+(ph.tc_trua||0)+(ph.chieu||0)+(ph.tc_toi||0);
   let ktQD=0; CAS.forEach(x=>(day?.ca?.[x.k]?.rows||[]).forEach(r=>{ if(r.kt) ktQD+=rowQD(r,x); }));
-  return {sang:s.sl,chieu:c.sl,tcTruaSL:t.sl,tcTruaGio:t.gc,tcToiSL:o.sl,tcToiGio:o.gc,congHC,gioTC,congQD:congHC+gioTC/8,ktQD,anh};
+  return {sang:s.sl,chieu:c.sl,tcTruaSL:t.sl,tcTruaGio:t.gc,tcToiSL:o.sl,tcToiGio:o.gc,congHC,gioTC,congQD:congHC+gioTC/8*HS(),ktQD,anh};
 }
 const money = n => Math.round(+n||0).toLocaleString('vi-VN')+' đ';
 
@@ -346,7 +347,7 @@ function shell(inner){
   <main>${inner}</main>`;
   $('#out').onclick=()=>api.logout();
 }
-const APP_VER='2026-11-25c';
+const APP_VER='2026-11-25d';
 (async()=>{ try{ const t=await (await fetch(location.pathname+'?chk='+Date.now(),{cache:'no-store'})).text(); const v=(t.match(/APP_VER='([^']+)'/)||[])[1];
   if(v && v!==APP_VER && !S.dirty) location.replace(location.pathname+'?v='+v+location.hash); }catch(e){} })();
 function route(){
@@ -880,14 +881,14 @@ function renderSum(){
     </table></div>
     <h2 style="margin:6px 0 10px">Khấu trừ theo đội thi công</h2>
     ${kt.size?`<div class="tw" style="margin-bottom:14px"><table><tr><th>Đội thi công</th><th class="n">Lượt người ca chính</th><th class="n">Công HC</th><th class="n">Giờ công TC</th><th class="n">Công quy đổi</th><th class="n">Đơn giá</th><th class="n">Thành tiền khấu trừ</th></tr>
-      ${[...kt].map(([k,o])=>`<tr><td>${esc(k)}</td><td class="n">${o.luot}</td><td class="n">${fmt(o.hc)}</td><td class="n">${fmt(o.tc)}</td><td class="n">${fmt(o.hc+o.tc/8)}</td><td class="n">${money(dg)}</td><td class="n"><b>${money((o.hc+o.tc/8)*dg)}</b></td></tr>`).join('')}
+      ${[...kt].map(([k,o])=>`<tr><td>${esc(k)}</td><td class="n">${o.luot}</td><td class="n">${fmt(o.hc)}</td><td class="n">${fmt(o.tc)}</td><td class="n">${fmt(o.hc+o.tc/8*HS())}</td><td class="n">${money(dg)}</td><td class="n"><b>${money((o.hc+o.tc/8*HS())*dg)}</b></td></tr>`).join('')}
       <tr class="tot"><td>TỔNG</td><td></td><td></td><td></td><td class="n">${fmt(T.ktQD)}</td><td></td><td class="n">${money(T.ktQD*dg)}</td></tr></table></div>`
       :'<div class="card muted">Không có công nhật nào phải khấu trừ đội trong khoảng này.</div>'}
     <h2 style="margin:6px 0 10px">Theo giám sát</h2>
     <div class="tw"><table><tr><th>Giám sát</th><th class="n">Lượt người (sáng+chiều)</th><th class="n">Công HC</th><th class="n">Giờ công TC</th><th class="n">Công quy đổi</th></tr>
-      ${[...g].map(([k,o])=>`<tr><td>${esc(k)}</td><td class="n">${o.luot}</td><td class="n">${fmt(o.hc)}</td><td class="n">${fmt(o.tc)}</td><td class="n">${fmt(o.hc+o.tc/8)}</td></tr>`).join('')}
+      ${[...g].map(([k,o])=>`<tr><td>${esc(k)}</td><td class="n">${o.luot}</td><td class="n">${fmt(o.hc)}</td><td class="n">${fmt(o.tc)}</td><td class="n">${fmt(o.hc+o.tc/8*HS())}</td></tr>`).join('')}
     </table></div>
-    <p class="muted">Quy ước: 1 người ca sáng hoặc ca chiều = 0,5 công. Giờ công TC = SL người × (Đến − Từ). Công quy đổi = Công HC + Giờ TC / 8.</p>`
+    <p class="muted">Quy ước: 1 người ca sáng hoặc ca chiều = 0,5 công. Giờ công TC = SL người × (Đến − Từ). Công quy đổi = Công HC + Giờ TC / 8 × ${fmt(HS())} (hệ số tăng ca).</p>`
     : '<div class="card muted">Không có ngày nào được khai báo trong khoảng này.</div>';
 }
 async function exportXlsx(){
@@ -909,14 +910,14 @@ async function exportXlsx(){
   const c1=[['STT',6],['Ngày',12],['Thứ',6],['SL sáng',9],['SL chiều',9],['Công HC',10],['SL TC trưa',9],['Giờ công TC trưa',11],['SL TC tối',9],['Giờ công TC tối',11],['Tổng giờ TC',11],['Công quy đổi',11],['Công KT đội',12],['Số ảnh',8],['Trạng thái',24],['Ghi chú',36]];
   head(w1,'BẢNG TỔNG HỢP CÔNG NHẬT HẰNG NGÀY',sub,c1);
   days.forEach((d,i)=>{ const s=daySum(d), r=5+i;
-    w1.getRow(r).values=[i+1,vn(d.date),thu(d.date),s.sang,s.chieu,{formula:`(D${r}+E${r})/2`},s.tcTruaSL,s.tcTruaGio,s.tcToiSL,s.tcToiGio,{formula:`H${r}+J${r}`},{formula:`F${r}+K${r}/8`},Math.round(ktSplit(normRows(d)).ok*1000)/1000,s.anh,stText(d),d.note||''];
+    w1.getRow(r).values=[i+1,vn(d.date),thu(d.date),s.sang,s.chieu,{formula:`(D${r}+E${r})/2`},s.tcTruaSL,s.tcTruaGio,s.tcToiSL,s.tcToiGio,{formula:`H${r}+J${r}`},{formula:`F${r}+K${r}/8*${HS()}`},Math.round(ktSplit(normRows(d)).ok*1000)/1000,s.anh,stText(d),d.note||''];
     if(dayCounts(d).duyet<dayCounts(d).n) w1.getCell(r,15).font={color:{argb:'FFB7791F'},bold:true};
   });
   const L1=4+days.length, T1=L1+1;
   w1.getRow(T1).values=['','TỔNG','',...'DEFGHIJKLMN'.split('').map(c=>({formula:`SUM(${c}5:${c}${L1})`})),'',''];
   w1.getRow(T1).font={bold:true}; for(let c=1;c<=16;c++) w1.getCell(T1,c).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8F0FB'}};
   box(w1,5,T1,16); for(let r=5;r<=L1;r++) w1.getCell(r,16).alignment={wrapText:true,vertical:'top'};
-  w1.getCell(T1+2,1).value='Quy ước: 1 người ca sáng hoặc ca chiều = 0,5 công; Giờ công TC = SL × (Đến − Từ); Công quy đổi = Công HC + Tổng giờ TC / 8. Công KT đội: phần công nhật tick "Trừ tiền đội".'; w1.getCell(T1+2,1).font={italic:true,size:9};
+  w1.getCell(T1+2,1).value='Quy ước: 1 người ca sáng hoặc ca chiều = 0,5 công; Giờ công TC = SL × (Đến − Từ); Công quy đổi = Công HC + Tổng giờ TC / 8 × '+HS()+' (hệ số tăng ca). Công KT đội: phần công nhật tick "Trừ tiền đội".'; w1.getCell(T1+2,1).font={italic:true,size:9};
 
   // Sheet 2: chi tiết  (C=Ca, D=GS, G=Đội, H=Khấu trừ, I=SL, L=Số giờ, M=Người×giờ, N=Công HC, O=Công QĐ)
   const w2=wb.addWorksheet('Chi tiet');
@@ -924,7 +925,7 @@ async function exportXlsx(){
   head(w2,'CHI TIẾT PHÂN CÔNG CÔNG NHẬT',sub,c2);
   let r2=5,n=0;
   days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ n++;
-    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?'Có':'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8`}:{formula:`N${r2}`},d.ca[c.k].note||''];
+    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?'Có':'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8*${HS()}`}:{formula:`N${r2}`},d.ca[c.k].note||''];
     if(c.tc) for(let k=1;k<=16;k++) w2.getCell(r2,k).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDF3E1'}};
     if(x.kt) w2.getCell(r2,8).font={bold:true,color:{argb:'FFB3261E'}};
     r2++; })));
@@ -938,7 +939,7 @@ async function exportXlsx(){
   head(w3,'TỔNG HỢP CÔNG NHẬT THEO GIÁM SÁT',sub,c3);
   const gsNames=[...new Set(days.flatMap(d=>CAS.flatMap(c=>(d.ca?.[c.k]?.rows||[]).map(x=>x.gs))))];
   gsNames.forEach((g,i)=>{ const r=5+i;
-    w3.getRow(r).values=[i+1,g,{formula:`SUMPRODUCT((${rg('D')}=B${r})*((${rg('C')}="Sáng")+(${rg('C')}="Chiều"))*${rg('I')})`},{formula:`SUMIFS(${rg('N')},${rg('D')},B${r})`},{formula:`SUMPRODUCT((${rg('D')}=B${r})*((${rg('C')}="TC trưa")+(${rg('C')}="TC tối"))*${rg('M')})`},{formula:`D${r}+E${r}/8`},{formula:`SUMIFS(${rg('O')},${rg('D')},B${r},${rg('H')},"Có")`}]; });
+    w3.getRow(r).values=[i+1,g,{formula:`SUMPRODUCT((${rg('D')}=B${r})*((${rg('C')}="Sáng")+(${rg('C')}="Chiều"))*${rg('I')})`},{formula:`SUMIFS(${rg('N')},${rg('D')},B${r})`},{formula:`SUMPRODUCT((${rg('D')}=B${r})*((${rg('C')}="TC trưa")+(${rg('C')}="TC tối"))*${rg('M')})`},{formula:`D${r}+E${r}/8*${HS()}`},{formula:`SUMIFS(${rg('O')},${rg('D')},B${r},${rg('H')},"Có")`}]; });
   const T3=5+gsNames.length; w3.getRow(T3).values=['','TỔNG',...'CDEFG'.split('').map(c=>({formula:`SUM(${c}5:${c}${T3-1})`}))]; w3.getRow(T3).font={bold:true};
   box(w3,5,T3,7);
 
@@ -948,7 +949,7 @@ async function exportXlsx(){
   head(w4,'TỔNG HỢP CÔNG NHẬT KHẤU TRỪ ĐỘI THI CÔNG',sub,c4);
   const doiKT=[...ktByDoi(days).keys()];
   doiKT.forEach((g,i)=>{ const r=5+i;
-    w4.getRow(r).values=[i+1,g,{formula:`SUMPRODUCT((${rg('G')}=B${r})*(${rg('H')}="Có")*((${rg('C')}="Sáng")+(${rg('C')}="Chiều"))*${rg('I')})`},{formula:`SUMIFS(${rg('N')},${rg('G')},B${r},${rg('H')},"Có")`},{formula:`SUMPRODUCT((${rg('G')}=B${r})*(${rg('H')}="Có")*((${rg('C')}="TC trưa")+(${rg('C')}="TC tối"))*${rg('M')})`},{formula:`D${r}+E${r}/8`},+S.settings.donGia||0,{formula:`ROUND(F${r}*G${r},0)`}]; });
+    w4.getRow(r).values=[i+1,g,{formula:`SUMPRODUCT((${rg('G')}=B${r})*(${rg('H')}="Có")*((${rg('C')}="Sáng")+(${rg('C')}="Chiều"))*${rg('I')})`},{formula:`SUMIFS(${rg('N')},${rg('G')},B${r},${rg('H')},"Có")`},{formula:`SUMPRODUCT((${rg('G')}=B${r})*(${rg('H')}="Có")*((${rg('C')}="TC trưa")+(${rg('C')}="TC tối"))*${rg('M')})`},{formula:`D${r}+E${r}/8*${HS()}`},+S.settings.donGia||0,{formula:`ROUND(F${r}*G${r},0)`}]; });
   const T4=5+doiKT.length; w4.getRow(T4).values=['','TỔNG',...'CDEF'.split('').map(c=>({formula:`SUM(${c}5:${c}${T4-1})`})),'',{formula:`SUM(H5:H${T4-1})`}]; w4.getRow(T4).font={bold:true};
   box(w4,5,T4,8); for(let r=5;r<=T4;r++){ w4.getCell(r,7).numFmt='#,##0'; w4.getCell(r,8).numFmt='#,##0'; }
   // chi tiết từng lượt khấu trừ, gom theo đội — để gửi đội đối chiếu
@@ -982,6 +983,7 @@ async function viewCaiDat(){
   <section class="card"><h2>Giờ mặc định từng ca</h2><p class="muted">Tự điền khi thêm dòng, sửa được ở từng dòng.</p>
     ${CAS.map(c=>`<div class="row" style="margin-bottom:8px"><span style="width:80px;padding-bottom:10px;font-weight:600">${c.n}</span><label class="f" style="width:120px">Từ<input type="time" id="h1-${c.k}" value="${s.hours[c.k][0]}"></label><label class="f" style="width:120px">Đến<input type="time" id="h2-${c.k}" value="${s.hours[c.k][1]}"></label></div>`).join('')}
     <label class="f" style="margin-top:10px;max-width:260px">Đơn giá công nhật để tính khấu trừ (đ/công)<input type="number" id="dg" min="0" step="1000" value="${+s.donGia||0}"></label>
+    <label class="f" style="margin-top:10px;max-width:260px">Hệ số tăng ca (TC trưa, TC tối)<input type="number" id="hstc" min="1" step="0.1" value="${+s.heSoTC||1.5}"></label>
     <label class="f" style="margin-top:10px;max-width:260px">Giữ ảnh trong (ngày) — 1 = sang ngày mới tự xoá ảnh hôm trước<input type="number" id="pkeep" min="1" value="${+s.photoKeep||1}"></label>
     <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="preq" style="width:20px;min-height:20px" ${s.photoRequired?'checked':''}> Bắt buộc có ảnh mỗi ca có người mới được chốt ngày</label>
     <div class="row" style="margin-top:14px"><button class="btn pri" id="saveS">Lưu cài đặt</button><span id="msg"></span></div></section>
@@ -999,7 +1001,7 @@ async function viewCaiDat(){
   $('#saveS').onclick=async()=>{
     const gs=$('#gs').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{ const [n,...r]=l.split('|'); return {name:n.trim(),note:r.join('|').trim()}; });
     const hours={}; CAS.forEach(c=>hours[c.k]=[$('#h1-'+c.k).value,$('#h2-'+c.k).value]);
-    S.settings={gs,hours,viec:$('#viec').value.split('\n').map(x=>x.trim()).filter(Boolean),doi:$('#doi').value.split('\n').map(x=>x.trim()).filter(Boolean),donGia:Math.max(0,+$('#dg').value||0),photoKeep:Math.max(1,+$('#pkeep').value||1),photoRequired:$('#preq').checked};
+    S.settings={gs,hours,viec:$('#viec').value.split('\n').map(x=>x.trim()).filter(Boolean),doi:$('#doi').value.split('\n').map(x=>x.trim()).filter(Boolean),donGia:Math.max(0,+$('#dg').value||0),heSoTC:Math.max(1,+$('#hstc').value||1.5),photoKeep:Math.max(1,+$('#pkeep').value||1),photoRequired:$('#preq').checked};
     await api.saveSettings(S.settings); toast('Đã lưu cài đặt','ok');
   };
   $('#uadd').onclick=async()=>{ const e=$('#ue').value.trim().toLowerCase(); if(!/^\S+@\S+\.\S+$/.test(e)){ toast('Email không hợp lệ','bad'); return; }
