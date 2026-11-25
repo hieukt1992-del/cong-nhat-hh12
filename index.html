@@ -189,15 +189,7 @@ const ktOK = d => ['da_duyet','cu'].includes(ktState(d));   // chỉ ngày đã 
 /* ===== trạng thái TỪNG DÒNG phân công (giám sát tự ký – quản trị duyệt) ===== */
 const newId = () => 'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function normRows(day){ CAS.forEach(c=>(day?.ca?.[c.k]?.rows||[]).forEach((r,i)=>{ if(!r.id) r.id='L'+c.k+i; })); return day; }
-function rowSt(d,r){
-  if(r.id && d?.duyet?.[r.id]) return 'duyet';
-  if(r.ky) return 'ky';
-  if(r.tl) return 'tl';
-  const k=ktState(d);                       // ngày làm theo quy trình cũ (ký cả ngày)
-  if(k==='cu'||k==='da_duyet') return 'duyet';
-  if(k==='cho_duyet') return 'ky';
-  return 'nhap';
-}
+function rowSt(d,r){ return 'duyet'; }   // đã bỏ ký & duyệt: dòng đã lưu là có hiệu lực
 const rowOK = (d,r) => rowSt(d,r)==='duyet';
 function allRows(d){ const out=[]; CAS.forEach(c=>(d?.ca?.[c.k]?.rows||[]).forEach(r=>out.push({r,c}))); return out; }
 function dayCounts(d){ const o={n:0,nhap:0,ky:0,duyet:0,tl:0}; allRows(d).forEach(({r})=>{ o.n++; o[rowSt(d,r)]++; }); return o; }
@@ -207,16 +199,11 @@ const sigSrc = (d,o) => o ? (o.sig || d?.sigImg?.[o.s] || '') : '';
 const fdt = t => t ? new Date(t).toLocaleString('vi-VN',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit',year:'numeric'}) : '';
 function stBadge(d){
   const c=dayCounts(d);
-  if(!c.n) return d?.updatedAt ? '<span class="badge warn">Nháp</span>' : '<span class="badge">Chưa khai báo</span>';
-  const out=[];
-  if(c.duyet===c.n) return '<span class="badge ok">Đã duyệt</span>';
-  if(c.ky) out.push(`<span class="badge warn">${c.ky} dòng chờ duyệt</span>`);
-  if(c.nhap) out.push(`<span class="badge">${c.nhap} dòng chưa ký</span>`);
-  if(c.tl) out.push(`<span class="badge bad">${c.tl} dòng trả lại</span>`);
-  if(c.duyet) out.push(`<span class="badge ok">${c.duyet} đã duyệt</span>`);
-  return out.join(' ');
+  if(d?.locked) return '<span class="badge ok">Đã chốt</span>';
+  if(c.n) return `<span class="badge ok">Đã khai báo ${c.n} dòng</span>`;
+  return d?.updatedAt ? '<span class="badge warn">Nháp</span>' : '<span class="badge">Chưa khai báo</span>';
 }
-const stText = d => { const c=dayCounts(d); if(!c.n) return 'Nháp'; if(c.duyet===c.n) return 'Đã duyệt'; return [c.ky&&c.ky+' chờ duyệt',c.nhap&&c.nhap+' chưa ký',c.tl&&c.tl+' trả lại',c.duyet&&c.duyet+' đã duyệt'].filter(Boolean).join(', '); };
+const stText = d => d?.locked ? 'Đã chốt' : (dayCounts(d).n ? 'Đã khai báo' : 'Chưa khai báo');
 const duyetLink = date => location.origin+location.pathname+'#/duyet/'+date;
 const DEF_SETTINGS = {
   gs:[{name:'Nguyễn Văn Lập',note:'GS Hoàn thiện'},{name:'Vũ Đức Trung',note:'Kết cấu VP T7–mái'},{name:'Lê Quang Hiếu',note:'CHP NTC'}],
@@ -333,7 +320,7 @@ const S = { user:null, role:null, settings:null, date:today(), day:null, photos:
 const can = { write: () => S.role==='admin'||S.role==='khaibao', admin: () => S.role==='admin' };
 const editable = () => can.write() && !(S.day?.locked);
 const isMine = r => !r.by || r.by===S.user.email;
-function canEditRow(r){ if(!editable()) return false; const st=rowSt(S.day,r); if(st==='duyet'||st==='ky') return false; return can.admin() || isMine(r); }
+function canEditRow(r){ if(!editable()) return false; return can.admin() || isMine(r); }
 const canSignRow = r => editable() && ['nhap','tl'].includes(rowSt(S.day,r)) && (isMine(r) || can.admin());
 const canUnsignRow = r => editable() && rowSt(S.day,r)==='ky' && r.ky && (r.ky.email===S.user.email || can.admin());
 
@@ -344,7 +331,6 @@ const TABS = [
   ['khai-bao','Khai báo', ()=>can.write()],
   ['phan-cong','Phân công', ()=>true],
   ['anh','Ảnh', ()=>true],
-  ['duyet','Duyệt', ()=>can.admin()],
   ['tong-hop','Tổng hợp', ()=>true],
   ['cai-dat','Cài đặt', ()=>can.admin()],
 ];
@@ -413,7 +399,7 @@ function rowFoot(r){
 function rowHtml(k,i,r,roAll){
   const ro=roAll||!canEditRow(r), dis=ro?'disabled':'', tc=CAS.find(c=>c.k===k).tc, st=rowSt(S.day,r);
   const gsDis=(ro||!can.admin())?'disabled':'';
-  return `<div class="r${r.kt?' kt':''}${tc?' tc':''}${st==='ky'?' signed':''}${st==='duyet'?' ok':''}${st==='tl'?' tl':''}" data-ca="${k}" data-i="${i}">
+  return `<div class="r${r.kt?' kt':''}${tc?' tc':''}" data-ca="${k}" data-i="${i}">
     <span class="no">${i+1}</span>
     <label class="a1">Giám sát${r.by===S.user.email?' <span class="mine">(của tôi)</span>':''}<select data-f="gs" ${gsDis}>${gsOptions(r.gs)}</select></label>
     <label class="a4">Số người<input data-f="sl" type="number" min="0" inputmode="numeric" value="${esc(r.sl)}" placeholder="0" ${dis}></label>
@@ -425,7 +411,6 @@ function rowHtml(k,i,r,roAll){
     ${tc?`<label class="a5">Từ giờ<input data-f="tu" type="time" value="${esc(r.tu)}" ${dis}></label>
     <label class="a6">Đến giờ<input data-f="den" type="time" value="${esc(r.den)}" ${dis}></label>
     <div class="h a7" data-h>${fmt(hrs(r.tu,r.den))} giờ</div>`:'<span data-h hidden></span>'}
-    <div class="a11">${rowFoot(r)}</div>
   </div>`;
 }
 function caCard(c,idx){
@@ -470,7 +455,7 @@ function viewKhaiBao(){
   if(!can.admin() && S.date!==today() && !allRows(S.day).some(({r})=>r.tl&&isMine(r))){ loadDay(today()).then(viewKhaiBao); return; }
   if(S.caSelDate!==S.date || !S.caSel || !caOpen(S.caSel)){ S.caSel = S.date===today() ? currentCa() : 'sang'; S.caSelDate=S.date; }
   const d=S.day, ro=!editable(), iSel=CAS.findIndex(c=>c.k===S.caSel);
-  const st=stBadge(d), ks=ktState(d);
+  const st=stBadge(d), ks='';
   shell(`
     <div class="eyebrow">Công nhật · ${PROJECT}</div>
     <h1>Khai báo công nhật</h1>
@@ -481,7 +466,7 @@ function viewKhaiBao(){
     ${ks==='tra_lai'&&d.traLai?`<div class="err"><b>Anh ${esc(d.traLai.by)} trả lại ngày ${vn(S.date)} lúc ${fdt(d.traLai.at)}:</b> ${esc(d.traLai.lyDo)}</div>`:''}
     ${ks==='cho_duyet'?`<div class="card" style="border-color:#e9c98f;background:var(--warn2)"><b>Đã ký chốt, đang chờ duyệt khấu trừ.</b> ${fmt(daySum(d).ktQD)} công trừ đội · người ký: ${esc(d.sign?.kb?.name||'')} lúc ${fdt(d.sign?.kb?.at)}. <button class="btn sm" id="zaloDuyet" style="margin-left:6px">Nhắn Zalo nhắc duyệt</button></div>`:''}
     ${ks==='da_duyet'?`<div class="card" style="border-color:#bfe0cc;background:var(--ok2)"><b>Đã duyệt khấu trừ</b> · ${esc(d.sign?.duyet?.name||'')} lúc ${fdt(d.sign?.duyet?.at)}.</div>`:''}
-    ${can.write()&&!d.locked?`<div class="card" style="padding:10px 14px;font-size:13px"><b>Cách làm:</b> mỗi giám sát tự bấm <b>+ Thêm việc</b> để khai báo người mình dùng, chụp ảnh, rồi bấm <b>Ký xác nhận dòng này</b>. Dòng đã ký sẽ chuyển cho quản trị duyệt.${S.me?.gsName?` Tên giám sát của bạn: <b>${esc(S.me.gsName)}</b> <button class="btn sm" id="chgName">Đổi</button>`:''}</div>`:''}
+    ${can.write()&&!d.locked?`<div class="card" style="padding:10px 14px;font-size:13px"><b>Cách làm:</b> mỗi giám sát tự bấm <b>+ Thêm việc</b> để khai báo người mình dùng, chụp ảnh, rồi bấm <b>Lưu</b>. Mỗi giám sát chỉ sửa được dòng của mình.${S.me?.gsName?` Tên giám sát của bạn: <b>${esc(S.me.gsName)}</b> <button class="btn sm" id="chgName">Đổi</button>`:''}</div>`:''}
     <div class="steps" id="steps">${stepsHtml()}</div>
     ${d.locked&&ks!=='cho_duyet'&&ks!=='da_duyet'?`<div class="err"><b>Ngày ${vn(S.date)} đã chốt nên không nhập được nữa.</b>${can.admin()?' Muốn sửa thì bấm "Mở chốt để sửa" ở dưới, hoặc bấm "Hôm nay" để sang ngày mới.':' Cần sửa thì báo quản trị mở chốt.'}</div>`:''}
     <div id="errs"></div>
@@ -884,19 +869,19 @@ function renderSum(){
   const g=new Map();
   days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(r=>{ const k=r.gs||'(Chưa phân)'; const o=g.get(k)||{hc:0,tc:0,luot:0}; if(c.tc) o.tc+=(+r.sl||0)*hrs(r.tu,r.den); else { o.hc+=(+r.sl||0)/2; o.luot+=(+r.sl||0);} g.set(k,o); })));
   const kt=ktByDoi(days), dg=+S.settings.donGia||0;
-  const unl=days.filter(d=>{ const c=dayCounts(normRows(d)); return c.duyet<c.n; }).length;
+  const unl=0;
   $('#sum').innerHTML = days.length ? `
     <div class="stats">
       <div class="stat"><div class="v">${days.length}</div><div class="l">Ngày có khai báo</div></div>
       <div class="stat"><div class="v">${fmt(T.congHC)}</div><div class="l">Tổng công HC</div></div>
       <div class="stat"><div class="v">${fmt(T.gioTC)}</div><div class="l">Tổng giờ công TC</div></div>
       <div class="stat"><div class="v">${fmt(T.congQD)}</div><div class="l">Công quy đổi</div></div>
-      <div class="stat"><div class="v" style="color:var(--warn)">${money(T.ktQD*dg)}</div><div class="l">Khấu trừ đội đã duyệt (${fmt(T.ktQD)} công)</div></div>
+      <div class="stat"><div class="v" style="color:var(--warn)">${money(T.ktQD*dg)}</div><div class="l">Khấu trừ đội (${fmt(T.ktQD)} công)</div></div>
     </div>
     ${choN?`<div class="err" style="background:var(--warn2);color:var(--warn)">${choN} ngày có ${fmt(cho)} công khấu trừ <b>chưa được duyệt</b> nên chưa tính tiền.${can.admin()?' <a href="#/duyet">Vào duyệt</a>':''}</div>`:''}
     ${unl?`<div class="err">${unl} ngày còn dòng phân công chưa ký hoặc chưa duyệt — số liệu có thể còn thay đổi.</div>`:''}
     <div class="tw" style="margin-bottom:14px"><table>
-      <tr><th class="n">STT</th><th>Ngày</th><th class="n">SL sáng</th><th class="n">SL chiều</th><th class="n">Công HC</th><th class="n">Giờ công TC trưa</th><th class="n">Giờ công TC tối</th><th class="n">Tổng giờ TC</th><th class="n">Công quy đổi</th><th class="n">Công KT đội (đã duyệt)</th><th class="n">Ảnh</th><th>Trạng thái</th></tr>
+      <tr><th class="n">STT</th><th>Ngày</th><th class="n">SL sáng</th><th class="n">SL chiều</th><th class="n">Công HC</th><th class="n">Giờ công TC trưa</th><th class="n">Giờ công TC tối</th><th class="n">Tổng giờ TC</th><th class="n">Công quy đổi</th><th class="n">Công KT đội</th><th class="n">Ảnh</th><th>Trạng thái</th></tr>
       ${rows}<tr class="tot"><td></td><td>TỔNG</td><td class="n">${T.sang}</td><td class="n">${T.chieu}</td><td class="n">${fmt(T.congHC)}</td><td class="n">${fmt(T.tcTruaGio)}</td><td class="n">${fmt(T.tcToiGio)}</td><td class="n">${fmt(T.gioTC)}</td><td class="n">${fmt(T.congQD)}</td><td class="n">${fmt(T.ktQD)}</td><td class="n">${T.anh}</td><td></td></tr>
     </table></div>
     <h2 style="margin:6px 0 10px">Khấu trừ theo đội thi công</h2>
@@ -927,7 +912,7 @@ async function exportXlsx(){
 
   // Sheet 1: tổng hợp theo ngày
   const w1=wb.addWorksheet('TH theo ngay');
-  const c1=[['STT',6],['Ngày',12],['Thứ',6],['SL sáng',9],['SL chiều',9],['Công HC',10],['SL TC trưa',9],['Giờ công TC trưa',11],['SL TC tối',9],['Giờ công TC tối',11],['Tổng giờ TC',11],['Công quy đổi',11],['Công KT đội (đã duyệt)',12],['Số ảnh',8],['Trạng thái',24],['Ghi chú',36]];
+  const c1=[['STT',6],['Ngày',12],['Thứ',6],['SL sáng',9],['SL chiều',9],['Công HC',10],['SL TC trưa',9],['Giờ công TC trưa',11],['SL TC tối',9],['Giờ công TC tối',11],['Tổng giờ TC',11],['Công quy đổi',11],['Công KT đội',12],['Số ảnh',8],['Trạng thái',24],['Ghi chú',36]];
   head(w1,'BẢNG TỔNG HỢP CÔNG NHẬT HẰNG NGÀY',sub,c1);
   days.forEach((d,i)=>{ const s=daySum(d), r=5+i;
     w1.getRow(r).values=[i+1,vn(d.date),thu(d.date),s.sang,s.chieu,{formula:`(D${r}+E${r})/2`},s.tcTruaSL,s.tcTruaGio,s.tcToiSL,s.tcToiGio,{formula:`H${r}+J${r}`},{formula:`F${r}+K${r}/8`},Math.round(ktSplit(normRows(d)).ok*1000)/1000,s.anh,stText(d),d.note||''];
@@ -937,7 +922,7 @@ async function exportXlsx(){
   w1.getRow(T1).values=['','TỔNG','',...'DEFGHIJKLMN'.split('').map(c=>({formula:`SUM(${c}5:${c}${L1})`})),'',''];
   w1.getRow(T1).font={bold:true}; for(let c=1;c<=16;c++) w1.getCell(T1,c).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8F0FB'}};
   box(w1,5,T1,16); for(let r=5;r<=L1;r++) w1.getCell(r,16).alignment={wrapText:true,vertical:'top'};
-  w1.getCell(T1+2,1).value='Quy ước: 1 người ca sáng hoặc ca chiều = 0,5 công; Giờ công TC = SL × (Đến − Từ); Công quy đổi = Công HC + Tổng giờ TC / 8. Công KT đội: chỉ tính các dòng phân công đã được giám sát ký và quản trị ký duyệt.'; w1.getCell(T1+2,1).font={italic:true,size:9};
+  w1.getCell(T1+2,1).value='Quy ước: 1 người ca sáng hoặc ca chiều = 0,5 công; Giờ công TC = SL × (Đến − Từ); Công quy đổi = Công HC + Tổng giờ TC / 8. Công KT đội: phần công nhật tick "Trừ tiền đội".'; w1.getCell(T1+2,1).font={italic:true,size:9};
 
   // Sheet 2: chi tiết  (C=Ca, D=GS, G=Đội, H=Khấu trừ, I=SL, L=Số giờ, M=Người×giờ, N=Công HC, O=Công QĐ)
   const w2=wb.addWorksheet('Chi tiet');
@@ -945,7 +930,7 @@ async function exportXlsx(){
   head(w2,'CHI TIẾT PHÂN CÔNG CÔNG NHẬT',sub,c2);
   let r2=5,n=0;
   days.forEach(d=>CAS.forEach(c=>(d.ca?.[c.k]?.rows||[]).forEach(x=>{ n++;
-    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?(rowOK(d,x)?'Có':'Chờ duyệt'):'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8`}:{formula:`N${r2}`},d.ca[c.k].note||''];
+    w2.getRow(r2).values=[n,vn(d.date),c.n,x.gs,x.viec,x.vitri,x.doi||'BCH / chung',x.kt?'Có':'',+x.sl||0,rowT(x,c)[0],rowT(x,c)[1],hrs(...rowT(x,c)),{formula:`I${r2}*L${r2}`},c.tc?'':{formula:`I${r2}*0.5`},c.tc?{formula:`M${r2}/8`}:{formula:`N${r2}`},d.ca[c.k].note||''];
     if(c.tc) for(let k=1;k<=16;k++) w2.getCell(r2,k).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDF3E1'}};
     if(x.kt) w2.getCell(r2,8).font={bold:true,color:{argb:'FFB3261E'}};
     r2++; })));
